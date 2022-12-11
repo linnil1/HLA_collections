@@ -31,6 +31,7 @@ images = {
     "kourami_preprocess": "localhost/linnil1/kourami_preprocess",
     "xhla": "localhost/linnil1/xhla",
     "graphtyper": "localhost/linnil1/graphtyper:2.7.5",
+    "optitype": "quay.io/biocontainers/optitype:1.3.5--hdfd78af_2",
 }
 
 
@@ -1120,6 +1121,74 @@ def graphtyperReadResult(input_name: str) -> str:
     return output_name
 
 
+def optitypeDownload(folder):
+    """Get index from dockerfile"""
+    output_name = folder + "/hla_3140"
+    if Path(output_name).exists():
+        return output_name
+    Path(folder).mkdir(exist_ok=True)
+    runDocker("optitype", f"cp -r /usr/local/bin/data/ {output_name}")
+    with open(f"{output_name}/config.ini", "w") as f:
+        f.write(
+            f"""
+[mapping]
+razers3=/usr/local/bin/razers3
+threads={getThreads()}
+
+[ilp]
+solver=glpk
+threads={getThreads()}
+
+[behavior]
+deletebam=false
+unpaired_weight=0
+use_discordant=false
+    """
+        )
+    return output_name
+
+
+def optitypeRun(input_name: str, index: str) -> str:
+    """https://github.com/FRED-2/OptiType"""
+    output_name = input_name + ".optitype_" + name2Single(index)
+    if Path(f"{output_name}._result.tsv").exists():
+        return output_name
+    parent = Path(output_name).parent
+    name = Path(output_name).name
+    runDocker(
+        "optitype",
+        f"OptiTypePipeline.py  --dna --verbose"
+        f" --input {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz"
+        f" --outdir {parent} --prefix {name}.",
+        opts=(
+            f" -v $PWD/{index}:/usr/local/bin/data "
+            f" -v $PWD/{index}/config.ini:/usr/local/bin/config.ini "
+        ),
+    )
+    return output_name
+
+
+def optitypeReadResult(input_name: str) -> str:
+    """
+    Read optitype json into our hla_result format
+
+    Its format:
+    ```
+        A1      A2      B1      B2      C1      C2      Reads   Objective
+    0       A*01:01 A*11:01 B*08:01 B*56:01 C*01:02 C*07:01 1529.0  1446.4
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+    df = pd.read_csv(f"{input_name}._result.tsv", sep="\t")
+    alleles = df[["A1", "A2", "B1", "B2", "C1", "C2"]].values.tolist()[0]
+    df1 = allelesToTable(filter(None, alleles), default_gene=["A", "B", "C"])
+    df1["name"] = input_name
+    df1.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
 def renameResult(input_name: str, sample_name: str) -> str:
     """rename xx.*.hla_result.csv into xx.hla_result.{method}.csv"""
     suffix = input_name.split(sample_name)[1]
@@ -1173,6 +1242,7 @@ def readArgument() -> argparse.Namespace:
         default=[
             "bwakit",
             "graphtyper",
+            "optitype",
             "hisat",
             "hlala",
             "hlascan",
@@ -1293,6 +1363,12 @@ if __name__ == "__main__":
         samples_new = graphtyperPreRun(samples_hs38, index_graphtyper)
         samples_new = globAndRun(graphtyperRun, samples_new)
         samples_new = graphtyperReadResult(samples_new)
+        renameResult(samples_new, samples)
+
+    if "optitype" in args.tools:
+        index_optitype = optitypeDownload("optitype")
+        samples_new = optitypeRun(samples, index_optitype)
+        samples_new = optitypeReadResult(samples_new)
         renameResult(samples_new, samples)
 
     mergeResult(samples + ".hla_result.{}")

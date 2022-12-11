@@ -6,6 +6,7 @@ Tools includes
 
 * bwakit=0.7.17 (https://github.com/lh3/bwa/tree/master/bwakit)
 * graphtyper=2.7.5 (https://github.com/DecodeGenetics/graphtyper)
+* OptiType=1.3.5 (RNA, https://github.com/FRED-2/OptiType)
 * HISAT-genotype=1.3.3 (https://daehwankimlab.github.io/hisat-genotype/)
 * HLA-LA=1.0.3 (https://github.com/DiltheyLab/HLA-LA)
 * HLAscan=2.1.4 (https://github.com/SyntekabioTools/HLAscan)
@@ -16,7 +17,8 @@ Tools includes
 Some tools are able to update the index to the latest IMGT-HLA version
 
 * bwakit (Cannot change)
-* graphtyper=2.7.5 (Provided 3.23.0, cannot change)
+* graphtyper (Provided 3.23.0, cannot change)
+* OptiType (Provided 3.14.0, cannot change)
 * HISAT-genotype (Provided 3.26.0 -> Max 3.43.0)
 * HLA-LA (Unknwon, cannot change)
 * HLAscan (Unknwon, cannot change, not open-source)
@@ -172,10 +174,16 @@ In some cases, you should customize the code, add some features about
 filtering, thresholding on tool provided parameters (e.g. abundance).
 
 
+Some HLA tools are not considered as TODO:
+* HLA-HD (Not open-sourced, require download requests)
+
+
+
 ## Reference
 * Li, Heng. "Aligning sequence reads, clone sequences and assembly contigs with BWA-MEM." arXiv preprint arXiv:1303.3997 (2013).
 * Hannes P. Eggertsson, Hakon Jonsson, Snaedis Kristmundsdottir, Eirikur Hjartarson, Birte Kehr, Gisli Masson, Florian Zink, Kristjan E. Hjorleifsson, Aslaug Jonasdottir, Adalbjorg Jonasdottir, Ingileif Jonsdottir, Daniel F. Gudbjartsson, Pall Melsted, Kari Stefansson, Bjarni V. Halldorsson. Graphtyper enables population-scale genotyping using pangenome graphs. Nature Genetics 49, 1654–1660 (2017). doi:10.1038/ng.3964
 * Kim, D., Paggi, J.M., Park, C. et al. Graph-based genome alignment and genotyping with HISAT2 and HISAT-genotype. Nat Biotechnol 37, 907–915 (2019). https://doi.org/10.1038/s41587-019-0201-4
+* András Szolek, Benjamin Schubert, Christopher Mohr, Marc Sturm, Magdalena Feldhahn, Oliver Kohlbacher, OptiType: precision HLA typing from next-generation sequencing data, Bioinformatics, Volume 30, Issue 23, 1 December 2014, Pages 3310–3316, https://doi.org/10.1093/bioinformatics/btu548
 * Alexander T Dilthey, Alexander J Mentzer, Raphael Carapito, Clare Cutland, Nezih Cereb, Shabir A Madhi, Arang Rhie, Sergey Koren, Seiamak Bahram, Gil McVean, Adam M Phillippy, HLA\*LA—HLA typing from linearly projected graph alignments, Bioinformatics, Volume 35, Issue 21, 1 November 2019, Pages 4394–4396, https://doi.org/10.1093/bioinformatics/btz235
 * Ka, S., Lee, S., Hong, J. et al. HLAscan: genotyping of the HLA region using next-generation sequencing data. BMC Bioinformatics 18, 258 (2017). https://doi.org/10.1186/s12859-017-1671-3
 * Lee, H., Kingsford, C. Kourami: graph-guided assembly for novel human leukocyte antigen allele discovery. Genome Biol 19, 16 (2018). https://doi.org/10.1186/s13059-018-1388-2
