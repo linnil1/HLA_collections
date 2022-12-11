@@ -1,10 +1,12 @@
 from glob import glob
 from pathlib import Path
+from itertools import chain
 from collections import defaultdict
 from typing import Iterable
 import re
 import uuid
 import json
+import gzip
 import argparse
 import subprocess
 import pandas as pd
@@ -28,6 +30,7 @@ images = {
     # "hlala": " localhost/linnil1/hlala:alpine",  # linnil1-built for fun
     "kourami_preprocess": "localhost/linnil1/kourami_preprocess",
     "xhla": "localhost/linnil1/xhla",
+    "graphtyper": "localhost/linnil1/graphtyper:2.7.5",
 }
 
 
@@ -78,7 +81,9 @@ def buildImage(dockerfile: str, image: str) -> None:
 def checkImage(image: str) -> bool:
     """check image exists"""
     try:
-        runShell(f"sh -c 'if [ ! $(podman image ls {image} -q) ]; then exit 1; fi'")
+        runShell(
+            f"sh -c 'if [ ! $(podman image ls {images[image]} -q) ]; then exit 1; fi'"
+        )
         return True
     except subprocess.CalledProcessError:
         return False
@@ -980,6 +985,103 @@ def xhlaReadResult(input_name: str) -> str:
     return output_name
 
 
+def graphtyperDownload(folder: str = "graphtyper") -> str:
+    """https://github.com/DecodeGenetics/graphtyper"""
+    if Path(f"{folder}").exists():
+        return folder
+    Path(folder).mkdir(exist_ok=True)
+    return folder
+
+
+def graphtyperBuildImage(folder: str) -> str:
+    """docker build -f graphtyper.dockerfile"""
+    if checkImage("graphtyper"):
+        return folder
+    buildImage("graphtyper.dockerfile", images["graphtyper"])
+    return folder
+
+
+def graphtyperBuild(
+    folder: str, db_hla: str = "origin", index_hs38: str = "bwakit/hs38.fa"
+) -> str:
+    """
+    IMGT version 3.23.0 written in their paper.
+    I'm not sure if database is updated.
+
+    Ignore db_hla, It doesn't provided scripts for updating index
+    """
+    output_name = folder + "/hla_3230"
+    name = Path(index_hs38).name
+    if Path(f"{output_name}/{name}.fai").exists():
+        return output_name
+    runShell(f"mkdir -p {output_name}")
+    runShell(
+        f"wget https://github.com/DecodeGenetics/graphtyper/releases/download/v2.7.5/HLA_data.tar.gz -P {output_name}"
+    )
+    runShell(f"tar -vxf {output_name}/HLA_data.tar.gz -C {output_name}")
+    runDocker("samtools", f"samtools faidx {index_hs38}")
+    runShell(f"ln -s ../../{index_hs38} {output_name}/{name}")
+    runShell(f"ln -s ../../{index_hs38}.fai {output_name}/{name}.fai")
+    return output_name
+
+
+def graphtyperRun(input_name: str, index: str) -> str:
+    """https://github.com/DecodeGenetics/graphtyper/wiki/HLA-genotyping"""
+    output_name = input_name + ".graphtyper_" + name2Single(index)
+    if Path(output_name).exists():
+        return output_name
+    id = Path(output_name).name
+    df = pd.read_csv(
+        f"{index}/regions.tsv", sep="\t", names=["chrom", "start", "end", "gene"]
+    )
+    for i in df.itertuples():
+        open(f"{output_name}.gene.{i.gene}.txt", "w").write(f"{input_name}.bam")
+        runDocker(
+            "graphtyper",
+            f"graphtyper genotype_hla {index}/hs38.fa --verbose --threads={getThreads()} "
+            f"{index}/{i.gene}.vcf.gz --region={i.chrom}:{i.start}-{i.end} "
+            f"--sam={input_name}.bam --output={output_name}",
+        )
+    return output_name
+
+
+def graphtyperReadResult(input_name: str) -> str:
+    """
+    Read graphtyper result in each vcfs into our hla_result format
+
+    Its format:
+    ```
+    ...
+    ##FILTER=<ID=LowPratio,Description="Ratio of PASSed calls was too low.">
+    #CHROM  POS     ID      REF     ALT     QUAL    FILTER  INFO    FORMAT  NA12878
+    chr6    29724785        chr6:29724785:H.all     <HLA-F*01:03:01:01>     <HLA-F*01:01:01:01>,<HLA-F*01:01:02:01> 255     .       AC=1,1;AF=0.5,0.5;AN=2;MQ=0;NHet=0;NHomAlt=1;NHomRef=0;PASS_AC=1,1;PASS_AN=2;PASS_ratio=1;RefLen=19;VarType=H  GT:GQ:PL        1/2:99:255,255,200,150,0,200
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+
+    alleles: list[str] = []
+    for vcf_file in glob(input_name + "/chr6/*.vcf.gz"):
+        for vcf_line in gzip.open(vcf_file, "rt"):
+            if vcf_line.startswith("#"):
+                continue
+            # "H.2digit"   # 1 fields
+            # "H.4digit"   # 2 fields
+            if "H.all" not in vcf_line:  # full resolution
+                continue
+            vcf_field = vcf_line.split("\t")
+            gts = [vcf_field[3], *vcf_field[4].split(",")]
+            gts = [i.replace("<HLA-", "").replace(">", "") for i in gts]
+            sample_gt_txt = vcf_field[9].split(":")[0].split("/")
+            sample_gt = [int(i) for i in sample_gt_txt if i != "."]
+            alleles.extend(gts[gt] for gt in sample_gt)
+    df = allelesToTable(alleles)
+    df["name"] = input_name
+    df.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
 def renameResult(input_name: str, sample_name: str) -> str:
     """rename xx.*.hla_result.csv into xx.hla_result.{method}.csv"""
     suffix = input_name.split(sample_name)[1]
@@ -1030,7 +1132,16 @@ def readArgument() -> argparse.Namespace:
     parser.add_argument("--version", default="origin", help="IMGT-HLA version")
     parser.add_argument(
         "--tools",
-        default=["bwakit", "hisat", "hlala", "hlascan", "kourami", "vbseq", "xhla"],
+        default=[
+            "bwakit",
+            "graphtyper",
+            "hisat",
+            "hlala",
+            "hlascan",
+            "kourami",
+            "vbseq",
+            "xhla",
+        ],
         nargs="+",
         help="HLA tools to execute",
     )
@@ -1052,7 +1163,7 @@ if __name__ == "__main__":
         db_hla = downloadHLA("", version=version)
 
     # bwa
-    if "xhla" in args.tools:
+    if "xhla" in args.tools or "graphtyper" in args.tools:
         index_hs38 = downloadRef("bwakit", name="hs38")
         index_hs38 = bwaIndex(index_hs38)
         samples_hs38 = bwaRun(samples, index_hs38)
@@ -1071,7 +1182,8 @@ if __name__ == "__main__":
         index_bwakit = downloadRef("bwakit", name="hs38DH")
         index_bwakit = bwaIndex(index_bwakit)
         samples_new = bwakitRun(samples, index_bwakit)
-        renameResult(bwakitReadResult(samples_new), samples)
+        samples_new_1 = bwakitReadResult(samples_new)
+        renameResult(samples_new_1, samples)
         samples_new = addSuffix(samples_new, ".aln")
         samples_hs38dh = bamSort(samples_new)
 
@@ -1082,22 +1194,26 @@ if __name__ == "__main__":
         index_kourami = kouramiBuild(folder_kourami, db_hla)
         samples_new = kouramiPreprocess(samples_hs38dh, index_kourami, folder_kourami)
         samples_new = kouramiRun(samples_new, index_kourami, folder_kourami)
-        renameResult(kouramiReadResult(samples_new), samples)
+        samples_new = kouramiReadResult(samples_new)
+        renameResult(samples_new, samples)
 
     # bwakit -> hlala
     if "hlala" in args.tools:
         index_hlala = hlalaDownload("hlala")
         samples_new = addUnmap(samples_hs38dh)
         samples_new = hlalaRun(samples_new, index_hlala)
-        renameResult(hlalaReadResult(samples_new), samples)
+        samples_new = hlalaReadResult(samples_new)
+        renameResult(samples_new, samples)
 
     # bwakit -> hlascan
     if "hlascan" in args.tools:
         index_hlascan = hlascanDownload("hlascan")
         samples_new = hlascanRun(samples, index_hlascan)
-        renameResult(hlascanReadResult(samples_new), samples)
+        samples_new = hlascanReadResult(samples_new)
+        renameResult(samples_new, samples)
         samples_new = hlascanRun(samples_hs38dh, index_hlascan)
-        renameResult(hlascanReadResult(samples_new), samples)
+        samples_new = hlascanReadResult(samples_new)
+        renameResult(samples_new, samples)
 
     if "hisat" in args.tools:
         # maximum version 3.43.0
@@ -1108,7 +1224,8 @@ if __name__ == "__main__":
         folder_hisat = hisatBuildImage(folder_hisat)
         index_hisat = hisatBuild(folder_hisat, db_hla_for_hisat)
         samples_new = hisatRun(samples, index_hisat)
-        renameResult(hisatReadResult(samples_new), samples)
+        samples_new = hisatReadResult(samples_new)
+        renameResult(samples_new, samples)
 
     if "vbseq" in args.tools:
         folder_vbseq = vbseqDownload("vbseq")
@@ -1117,7 +1234,8 @@ if __name__ == "__main__":
         samples_new = vbseqPreprocess(samples_hs37)
         # samples_new = samples  # directly mapped on HLA
         samples_new = vbseqRun(samples_new, index_vbseq)
-        renameResult(vbseqReadResult(samples_new), samples)
+        samples_new = vbseqReadResult(samples_new)
+        renameResult(samples_new, samples)
 
     # hs38 -> xhla
     if "xhla" in args.tools:
@@ -1125,6 +1243,15 @@ if __name__ == "__main__":
         folder_xhla = xhlaBuildImage(folder_xhla)
         index_xhla = xhlaBuild(folder_xhla, db_hla)
         samples_new = xhlaRun(samples_hs38, index_xhla)
-        renameResult(xhlaReadResult(samples_new), samples)
+        samples_new = xhlaReadResult(samples_new)
+        renameResult(samples_new, samples)
+
+    if "graphtyper" in args.tools:
+        folder_graphtyper = graphtyperDownload("graphtyper")
+        folder_graphtyper = graphtyperBuildImage(folder_graphtyper)
+        index_graphtyper = graphtyperBuild(folder_graphtyper, db_hla, index_hs38)
+        samples_new = graphtyperRun(samples_hs38, index_graphtyper)
+        samples_new = graphtyperReadResult(samples_new)
+        renameResult(samples_new, samples)
 
     mergeResult(samples + ".hla_result.{}")

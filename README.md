@@ -5,6 +5,7 @@ Run HLA typing by different tools.
 Tools includes
 
 * bwakit=0.7.17 (https://github.com/lh3/bwa/tree/master/bwakit)
+* graphtyper=2.7.5 (https://github.com/DecodeGenetics/graphtyper)
 * HISAT-genotype=1.3.3 (https://daehwankimlab.github.io/hisat-genotype/)
 * HLA-LA=1.0.3 (https://github.com/DiltheyLab/HLA-LA)
 * HLAscan=2.1.4 (https://github.com/SyntekabioTools/HLAscan)
@@ -15,9 +16,10 @@ Tools includes
 Some tools are able to update the index to the latest IMGT-HLA version
 
 * bwakit (Cannot change)
+* graphtyper=2.7.5 (Provided 3.23.0, cannot change)
 * HISAT-genotype (Provided 3.26.0 -> Max 3.43.0)
-* HLA-LA (I don't know how to change)
-* HLAscan (Don't know how to change, not open-source)
+* HLA-LA (Unknwon, cannot change)
+* HLAscan (Unknwon, cannot change, not open-source)
 * Kourami (Provided 3.24.0 -> Current 3.49.0)
 * HLA-VBSeq (Provided 3.31.0 -> Current 3.49.0)
 * xHLA=34221ea (Unknwon -> Current 3.49.0)
@@ -159,6 +161,15 @@ data/NA12878.vbseq_vbseq_hla_3490.est.call.txt
 data/NA12878.vbseq_vbseq_hla_3490.est.txt
 data/NA12878.vbseq_vbseq_hla_3490.sam
 ```
+
+
+## Notice
+I not sure all the index building processes are correct.
+Some of them are undocumented, I roughly review the code and find out the way to do it.
+
+Also, the result reading part is written in the easily way.
+In some cases, you should customize the code, add some features about
+filtering, thresholding on tool provided parameters (e.g. abundance).
 
 
 ## Reference
