@@ -1,8 +1,8 @@
 from glob import glob
 from pathlib import Path
 from itertools import chain
+from typing import Iterable, Callable
 from collections import defaultdict
-from typing import Iterable
 import re
 import uuid
 import json
@@ -89,6 +89,13 @@ def checkImage(image: str) -> bool:
         return False
 
 
+def globAndRun(func: Callable[[str], str], input_name: str) -> str:
+    """This is a temporary solution if not using my pipelilne"""
+    for i in glob(input_name.replace(".{}", ".*.sh")):
+        func(i[:-3])
+    return input_name
+
+
 def addSuffix(input_name: str, suffix: str) -> str:
     return input_name + suffix
 
@@ -96,7 +103,17 @@ def addSuffix(input_name: str, suffix: str) -> str:
 def allelesToTable(
     alleles: Iterable[str], default_gene: list[str] = []
 ) -> pd.DataFrame:
-    """Turn list of alleles into our hla_result format"""
+    """
+    Turn list of alleles into our hla_result format.
+
+    Like so:
+    ```
+    gene	1	2	name
+    A	A*11:126:01:01	A*01:01:01:01	data/NA12878.hisat_hisat_hla_3430
+    B	B*08:01:01:45	B*56:01:01:03	data/NA12878.hisat_hisat_hla_3430
+    C	C*01:02:01:13	C*01:02:01:06	data/NA12878.hisat_hisat_hla_3430
+    ```
+    """
     gene_allele: dict[str, list[str]] = defaultdict(list)
     for gene in default_gene:
         gene_allele[gene] = []
@@ -351,7 +368,7 @@ def kouramiBuild(folder: str, db_hla: str = "origin") -> str:
 def kouramiPreprocess(input_name: str, index: str, kourami_folder: str = "") -> str:
     """https://github.com/Kingsford-Group/kourami"""
     output_name = input_name + ".kourami_preprocess"
-    if Path(f"{output_name}_extract_2.fq.gz").exists():
+    if Path(f"{output_name}._extract_2.fq.gz").exists():
         return output_name
     if not kourami_folder:
         kourami_folder = index + "/.."
@@ -359,13 +376,13 @@ def kouramiPreprocess(input_name: str, index: str, kourami_folder: str = "") -> 
         "kourami_preprocess",
         f"bash {kourami_folder}/scripts/alignAndExtract_hs38DH.sh "
         f"-d {index} -r {kourami_folder}/resources/hs38NoAltDH.fa "
-        f"{output_name} "
+        f"{output_name}. "
         f"{input_name}.bam ",
     )
     return output_name
 
 
-def kouramiRun(input_name: str, index: str, kourami_folder: str) -> str:
+def kouramiRun(input_name: str, index: str, kourami_folder: str = "") -> str:
     """https://github.com/Kingsford-Group/kourami"""
     panel_name = input_name + ".panel_" + name2Single(index)
     output_name = panel_name + ".call"
@@ -373,10 +390,12 @@ def kouramiRun(input_name: str, index: str, kourami_folder: str) -> str:
         return output_name
     # Because we use same preprocessed file
     # the last step of alignAndExtract_hs38DH generate extracted fastq
+    if not kourami_folder:
+        kourami_folder = index + "/.."
     runDocker(
         "kourami_preprocess",
         f"bwa mem -t {getThreads()} {index}/All_FINAL_with_Decoy.fa.gz "
-        f"{input_name}_extract_1.fq.gz {input_name}_extract_2.fq.gz -o {panel_name}.sam ",
+        f"{input_name}._extract_1.fq.gz {input_name}._extract_2.fq.gz -o {panel_name}.sam ",
     )
     bamSort(panel_name, sam=True)
     runDocker(
@@ -603,19 +622,13 @@ def hlascanDownload(folder: str = "hlascan") -> str:
     return folder
 
 
-def hlascanRun(input_name: str, index: str) -> str:
-    """
-    https://github.com/SyntekabioTools/HLAscan
-    I'm not sure what input should given for hlascan:
-    * selected Fastq
-    * hs38 with alt (hs38DH)?
-    * hs37 or hs37d5
-    """
+def hlascanPreRun(input_name: str, index: str) -> str:
+    """Split the gene before hlascanRun"""
     output_name = input_name + ".hlascan_" + name2Single(index)
-    if Path(f"{output_name}.HLA-C.txt").exists():
+    if Path(f"{output_name}.HLA-C").exists():
         return output_name + ".{}"
     for gene in ["HLA-A", "HLA-B", "HLA-C"]:
-        try:
+        with open(f"{output_name}.{gene}.sh", "w") as f:
             if Path(input_name + ".bam").exists():
                 if "hs37" in input_name:
                     version = "37"
@@ -623,20 +636,34 @@ def hlascanRun(input_name: str, index: str) -> str:
                     version = "38"
                 else:
                     raise ValueError("reference version cannot determine")
-                runDocker(
-                    "ubuntu",
+                f.write(
                     f"./{index}/hlascan -g {gene} -t {getThreads()} -d {index}/db/HLA-ALL.IMGT "
-                    f"-b {input_name}.bam -v {version} > {output_name}.{gene}.txt",
+                    f"-b {input_name}.bam -v {version} > {output_name}.{gene}.txt"
                 )
             else:
-                runDocker(
-                    "ubuntu",
+                f.write(
                     f"./{index}/hlascan -g {gene} -t {getThreads()} -d {index}/db/HLA-ALL.IMGT "
-                    f"-l {input_name}.read.1.fq.gz -r {input_name}.read.2.fq.gz > {output_name}.{gene}.txt",
+                    f"-l {input_name}.read.1.fq.gz -r {input_name}.read.2.fq.gz > {output_name}.{gene}.txt"
                 )
-        except subprocess.CalledProcessError as e:
-            continue
     return output_name + ".{}"
+
+
+def hlascanRun(input_name: str) -> str:
+    """
+    https://github.com/SyntekabioTools/HLAscan
+    I'm not sure what input should given for hlascan:
+    * selected Fastq
+    * hs38 with alt (hs38DH)?
+    * hs37 or hs37d5
+    """
+    output_name = input_name
+    if Path(f"{output_name}.txt").exists():
+        return output_name
+    try:
+        runDocker("ubuntu", f"bash {input_name}.sh")
+    except subprocess.CalledProcessError as e:
+        pass
+    return output_name
 
 
 def hlascanReadResult(input_name: str) -> str:
@@ -661,7 +688,7 @@ def hlascanReadResult(input_name: str) -> str:
     alleles = []
     for gene in ["HLA-A", "HLA-B", "HLA-C"]:
         gene_name = gene.split("-")[1]
-        for i in open(input_name.replace(".{}", f".{gene}.txt")):
+        for i in open(input_name.replace("{}", f"{gene}.txt")):
             if "[Type" in i:
                 alleles.append(f"{gene_name}*{i.split()[2]}")
 
@@ -1011,8 +1038,7 @@ def graphtyperBuild(
     Ignore db_hla, It doesn't provided scripts for updating index
     """
     output_name = folder + "/hla_3230"
-    name = Path(index_hs38).name
-    if Path(f"{output_name}/{name}.fai").exists():
+    if Path(f"{output_name}/hs38.fa.fai").exists():
         return output_name
     runShell(f"mkdir -p {output_name}")
     runShell(
@@ -1020,28 +1046,40 @@ def graphtyperBuild(
     )
     runShell(f"tar -vxf {output_name}/HLA_data.tar.gz -C {output_name}")
     runDocker("samtools", f"samtools faidx {index_hs38}")
-    runShell(f"ln -s ../../{index_hs38} {output_name}/{name}")
-    runShell(f"ln -s ../../{index_hs38}.fai {output_name}/{name}.fai")
+    runShell(f"ln -s ../../{index_hs38} {output_name}/hs38.fa")
+    runShell(f"ln -s ../../{index_hs38}.fai {output_name}/hs38.fa.fai")
     return output_name
 
 
-def graphtyperRun(input_name: str, index: str) -> str:
-    """https://github.com/DecodeGenetics/graphtyper/wiki/HLA-genotyping"""
+def graphtyperPreRun(input_name: str, index: str) -> str:
+    """Split genes before graphtyperRun"""
     output_name = input_name + ".graphtyper_" + name2Single(index)
-    if Path(output_name).exists():
-        return output_name
+    if Path(output_name + ".HLA_A.sh").exists():
+        return output_name + ".{}"
     id = Path(output_name).name
     df = pd.read_csv(
         f"{index}/regions.tsv", sep="\t", names=["chrom", "start", "end", "gene"]
     )
     for i in df.itertuples():
-        open(f"{output_name}.gene.{i.gene}.txt", "w").write(f"{input_name}.bam")
-        runDocker(
-            "graphtyper",
-            f"graphtyper genotype_hla {index}/hs38.fa --verbose --threads={getThreads()} "
-            f"{index}/{i.gene}.vcf.gz --region={i.chrom}:{i.start}-{i.end} "
-            f"--sam={input_name}.bam --output={output_name}",
-        )
+        with open(f"{output_name}.{i.gene}.sh", "w") as f:
+            f.write(
+                f"graphtyper genotype_hla {index}/hs38.fa --verbose --threads={getThreads()} "
+                f"{index}/{i.gene}.vcf.gz --region={i.chrom}:{i.start}-{i.end} "
+                f"--sam={input_name}.bam --output={output_name}"
+            )
+            f.write("\n")
+            f.write(
+                f"ln -s ../{output_name}/{i.chrom}/{i.start:09d}-{i.end:09d}.vcf.gz {output_name}.{i.gene}.vcf.gz"
+            )
+    return output_name + ".{}"
+
+
+def graphtyperRun(input_name: str) -> str:
+    """https://github.com/DecodeGenetics/graphtyper/wiki/HLA-genotyping"""
+    output_name = input_name
+    if Path(output_name + ".vcf.gz").exists():
+        return output_name
+    runDocker("graphtyper", f"sh {input_name}.sh")
     return output_name
 
 
@@ -1057,12 +1095,12 @@ def graphtyperReadResult(input_name: str) -> str:
     chr6    29724785        chr6:29724785:H.all     <HLA-F*01:03:01:01>     <HLA-F*01:01:01:01>,<HLA-F*01:01:02:01> 255     .       AC=1,1;AF=0.5,0.5;AN=2;MQ=0;NHet=0;NHomAlt=1;NHomRef=0;PASS_AC=1,1;PASS_AN=2;PASS_ratio=1;RefLen=19;VarType=H  GT:GQ:PL        1/2:99:255,255,200,150,0,200
     ```
     """
-    output_name = input_name + ".hla_result"
+    output_name = input_name.replace(".{}", "_merge") + ".hla_result"
     if Path(f"{output_name}.tsv").exists():
         return output_name
 
     alleles: list[str] = []
-    for vcf_file in glob(input_name + "/chr6/*.vcf.gz"):
+    for vcf_file in glob(input_name.replace(".{}", ".*.vcf.gz")):
         for vcf_line in gzip.open(vcf_file, "rt"):
             if vcf_line.startswith("#"):
                 continue
@@ -1096,10 +1134,10 @@ def renameResult(input_name: str, sample_name: str) -> str:
 
 def mergeResult(input_name: str) -> str:
     """Merge hla_result data and print it"""
-    files = glob(input_name.replace("{}", "*.tsv"))
+    files = glob(input_name.replace(".{}", ".*.tsv"))
     print(files)
     df = pd.concat(pd.read_csv(i, sep="\t") for i in files)
-    print(input_name.replace("{}", "_merge"))
+    print(input_name.replace(".{}", "_merge"))
     with pd.option_context(
         "display.max_rows",
         None,
@@ -1208,10 +1246,12 @@ if __name__ == "__main__":
     # bwakit -> hlascan
     if "hlascan" in args.tools:
         index_hlascan = hlascanDownload("hlascan")
-        samples_new = hlascanRun(samples, index_hlascan)
+        samples_new = hlascanPreRun(samples, index_hlascan)
+        samples_new = globAndRun(hlascanRun, samples_new)
         samples_new = hlascanReadResult(samples_new)
         renameResult(samples_new, samples)
-        samples_new = hlascanRun(samples_hs38dh, index_hlascan)
+        samples_new = hlascanPreRun(samples_hs38dh, index_hlascan)
+        samples_new = globAndRun(hlascanRun, samples_new)
         samples_new = hlascanReadResult(samples_new)
         renameResult(samples_new, samples)
 
@@ -1250,7 +1290,8 @@ if __name__ == "__main__":
         folder_graphtyper = graphtyperDownload("graphtyper")
         folder_graphtyper = graphtyperBuildImage(folder_graphtyper)
         index_graphtyper = graphtyperBuild(folder_graphtyper, db_hla, index_hs38)
-        samples_new = graphtyperRun(samples_hs38, index_graphtyper)
+        samples_new = graphtyperPreRun(samples_hs38, index_graphtyper)
+        samples_new = globAndRun(graphtyperRun, samples_new)
         samples_new = graphtyperReadResult(samples_new)
         renameResult(samples_new, samples)
 
