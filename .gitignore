@@ -1,0 +1,17 @@
+# vim
+.*.swp
+
+# data
+data/
+*_hisat-genotype.log
+
+# index
+bwakit/
+hisat/
+hla_3430/
+hla_3490/
+hlala/
+hlascan/
+kourami/
+vbseq/
+xhla/
