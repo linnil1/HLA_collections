@@ -32,6 +32,7 @@ images = {
     "xhla": "localhost/linnil1/xhla",
     "graphtyper": "localhost/linnil1/graphtyper:2.7.5",
     "optitype": "quay.io/biocontainers/optitype:1.3.5--hdfd78af_2",
+    "arcas": "quay.io/biocontainers/arcas-hla:0.5.0--hdfd78af_1",
 }
 
 
@@ -1006,7 +1007,7 @@ def xhlaReadResult(input_name: str) -> str:
     # df = allelesToTable(result["hla"]["alleles"], default_gene=["A", "B", "C"])
     # 4 fields
     df_full = pd.read_csv(f"{input_name}.hla.full", sep="\t")
-    print(df_full)
+    # print(df_full)
     df = allelesToTable(df_full["full"], default_gene=["A", "B", "C"])
     df["name"] = input_name
     df.to_csv(output_name + ".tsv", index=False, sep="\t")
@@ -1121,7 +1122,7 @@ def graphtyperReadResult(input_name: str) -> str:
     return output_name
 
 
-def optitypeDownload(folder):
+def optitypeDownload(folder: str = "optitype") -> str:
     """Get index from dockerfile"""
     output_name = folder + "/hla_3140"
     if Path(output_name).exists():
@@ -1186,6 +1187,91 @@ def optitypeReadResult(input_name: str) -> str:
     df1 = allelesToTable(filter(None, alleles), default_gene=["A", "B", "C"])
     df1["name"] = input_name
     df1.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
+def arcasDownload(folder: str = "arcas") -> str:
+    """Get index from dockerfile. Yet you can download from git"""
+    if Path(folder).exists():
+        return folder
+    Path(folder).mkdir(exist_ok=True)
+    return folder
+
+
+def arcasBuild(folder: str, db_hla: str) -> str:
+    """ArcasHLA doesn't provide downloadable HLA"""
+    output_name = f"{folder}/{Path(db_hla).name}"
+    runShell(f"cp {db_hla}/hla.dat {output_name}/")
+    if Path(f"{output_name}/hla_partial.idx").exists():
+        return output_name
+    Path(output_name).mkdir(exist_ok=True)
+    runDocker(
+        "arcas",
+        "arcasHLA reference --rebuild",
+        opts=(
+            f" -v $PWD/{db_hla}:/usr/local/share/arcas-hla-0.5.0-1/dat/IMGTHLA/:ro "
+            f" -v $PWD/{output_name}:/usr/local/share/arcas-hla-0.5.0-1/dat/ref/ "
+        ),
+    )
+    return output_name
+
+
+def arcasPreprocess(input_name: str) -> str:
+    """https://github.com/RabadanLab/arcasHLA"""
+    output_name = input_name + ".arcas_extract"
+    # output_name = input_name + ".arcas_" + name2Single(index)
+    if Path(f"{output_name}.read.2.fq.gz").exists():
+        return output_name
+    runDocker(
+        "arcas",
+        f"arcasHLA extract -t {getThreads()} -v " f"{input_name}.bam -o {output_name}",
+    )
+    name = Path(input_name).name
+    runShell(
+        f"ln -s ../{output_name}/{name}.extracted.1.fq.gz {output_name}.read.1.fq.gz"
+    )
+    runShell(
+        f"ln -s ../{output_name}/{name}.extracted.2.fq.gz {output_name}.read.2.fq.gz"
+    )
+    return output_name
+
+
+def arcasRun(input_name: str, index: str) -> str:
+    """https://github.com/RabadanLab/arcasHLA"""
+    output_name = input_name + ".arcas_" + name2Single(index)
+    if len(glob(f"{output_name}/*.json")) >= 1:
+        return output_name
+    runDocker(
+        "arcas",
+        f"arcasHLA genotype -o {output_name} -t {getThreads()} -v "
+        f"{input_name}.read.1.fq.gz {input_name}.read.2.fq.gz",
+        opts=(
+            f" -v $PWD/{index}:/usr/local/share/arcas-hla-0.5.0-1/dat/ref:ro "
+            f" -v $PWD/{index}/hla.dat:/usr/local/share/arcas-hla-0.5.0-1/dat/IMGTHLA/hla.dat:ro "
+        ),
+    )
+    return output_name
+
+
+def arcasReadResult(input_name: str) -> str:
+    """
+    Read arcas json into our hla_result format
+
+    Its format:
+    ```
+    {"A": ["A*01:01:71", "A*03:01:01"], "B": ["B*07
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+    f = glob(f"{input_name}/*.genotype.json")[0]
+    data = json.load(open(f))
+    df = allelesToTable(
+        chain.from_iterable(data.values()), default_gene=["A", "B", "C"]
+    )
+    df["name"] = input_name
+    df.to_csv(output_name + ".tsv", index=False, sep="\t")
     return output_name
 
 
@@ -1286,6 +1372,7 @@ if __name__ == "__main__":
         or "kourami" in args.tools
         or "hlascan" in args.tools
         or "hlala" in args.tools
+        or "arcashla" in args.tools
     ):
         index_bwakit = downloadRef("bwakit", name="hs38DH")
         index_bwakit = bwaIndex(index_bwakit)
@@ -1369,6 +1456,18 @@ if __name__ == "__main__":
         index_optitype = optitypeDownload("optitype")
         samples_new = optitypeRun(samples, index_optitype)
         samples_new = optitypeReadResult(samples_new)
+        renameResult(samples_new, samples)
+
+    if "arcashla" in args.tools:
+        folder_arcas = arcasDownload("arcas")
+        db_hla_for_arcas = db_hla
+        if version == "origin":
+            db_hla_for_arcas = downloadHLA("", version="3.24.0")
+        index_arcas = arcasBuild(folder_arcas, db_hla_for_arcas)
+        samples_new = arcasPreprocess(samples_hs38dh)
+        # samples_new = samples  # directly mapped
+        samples_new = arcasRun(samples_new, index_arcas)
+        samples_new = arcasReadResult(samples_new)
         renameResult(samples_new, samples)
 
     mergeResult(samples + ".hla_result.{}")

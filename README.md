@@ -4,6 +4,7 @@ Run HLA typing by different tools.
 
 Tools includes
 
+* arcasHLA=0.5.0 (RNA, https://github.com/RabadanLab/arcasHLA)
 * bwakit=0.7.17 (https://github.com/lh3/bwa/tree/master/bwakit)
 * graphtyper=2.7.5 (https://github.com/DecodeGenetics/graphtyper)
 * OptiType=1.3.5 (RNA, https://github.com/FRED-2/OptiType)
@@ -16,6 +17,7 @@ Tools includes
 
 Some tools are able to update the index to the latest IMGT-HLA version
 
+* arcasHLA (Default 3.24.0 -> Current 3.49.0)
 * bwakit (Cannot change)
 * graphtyper (Provided 3.23.0, cannot change)
 * OptiType (Provided 3.14.0, cannot change)
@@ -180,6 +182,7 @@ Some HLA tools are not considered as TODO:
 
 
 ## Reference
+* Rose Orenbuch, Ioan Filip, Devon Comito, Jeffrey Shaman, Itsik Pe’er, Raul Rabadan, arcasHLA: high-resolution HLA typing from RNAseq, Bioinformatics, Volume 36, Issue 1, 1 January 2020, Pages 33–40, https://doi.org/10.1093/bioinformatics/btz474
 * Li, Heng. "Aligning sequence reads, clone sequences and assembly contigs with BWA-MEM." arXiv preprint arXiv:1303.3997 (2013).
 * Hannes P. Eggertsson, Hakon Jonsson, Snaedis Kristmundsdottir, Eirikur Hjartarson, Birte Kehr, Gisli Masson, Florian Zink, Kristjan E. Hjorleifsson, Aslaug Jonasdottir, Adalbjorg Jonasdottir, Ingileif Jonsdottir, Daniel F. Gudbjartsson, Pall Melsted, Kari Stefansson, Bjarni V. Halldorsson. Graphtyper enables population-scale genotyping using pangenome graphs. Nature Genetics 49, 1654–1660 (2017). doi:10.1038/ng.3964
 * Kim, D., Paggi, J.M., Park, C. et al. Graph-based genome alignment and genotyping with HISAT2 and HISAT-genotype. Nat Biotechnol 37, 907–915 (2019). https://doi.org/10.1038/s41587-019-0201-4

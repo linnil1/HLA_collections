@@ -5,14 +5,18 @@
 data/
 *_hisat-genotype.log
 
+# python
+__pycache__
+
 # index
 bwakit/
 hisat/
-hla_3430/
-hla_3490/
+hla_3*
 hlala/
 hlascan/
 kourami/
 vbseq/
 xhla/
 graphtyper/
+optitype/
+arcas/
