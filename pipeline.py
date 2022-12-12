@@ -33,6 +33,7 @@ images = {
     "graphtyper": "localhost/linnil1/graphtyper:2.7.5",
     "optitype": "quay.io/biocontainers/optitype:1.3.5--hdfd78af_2",
     "arcas": "quay.io/biocontainers/arcas-hla:0.5.0--hdfd78af_1",
+    "polysolver": "docker.io/sachet/polysolver:v4",
 }
 
 
@@ -1275,6 +1276,43 @@ def arcasReadResult(input_name: str) -> str:
     return output_name
 
 
+def polysolverRun(input_name: str, index: str) -> str:
+    """https://software.broadinstitute.org/cancer/cga/polysolver_run"""
+    output_name = input_name + ".polysolver_origin"
+    if Path(f"{output_name}/winners.hla.nofreq.txt").exists():
+        return output_name
+    runDocker(
+        "polysolver",
+        f"bash /home/polysolver/scripts/shell_call_hla_type"
+        f" {input_name}.bam Unknown 0 hg19 STDFQ 0 {output_name}",
+    )
+    return output_name
+
+
+def polysolverReadResult(input_name: str) -> str:
+    """
+    Read polysolver txt into our hla_result format
+
+    Its format:
+    ```
+    HLA-A   hla_a_01_01_01_01       hla_a_01_01_01_01
+    HLA-B   hla_b_07_02_01  hla_b_82_02
+    HLA-C   hla_c_01_02_01  hla_c_01_02_01
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+    txt = pd.read_csv(f"{input_name}/winners.hla.nofreq.txt", sep="\t", header=None)
+    alleles = txt[[1, 2]].values.flatten().tolist()
+    alleles = [i.replace("hla_", "").upper().replace("_", ":") for i in alleles]
+    alleles = [i.replace(":", "*", 1) for i in alleles]
+    df = allelesToTable(alleles, default_gene=["A", "B", "C"])
+    df["name"] = input_name
+    df.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
 def renameResult(input_name: str, sample_name: str) -> str:
     """rename xx.*.hla_result.csv into xx.hla_result.{method}.csv"""
     suffix = input_name.split(sample_name)[1]
@@ -1326,6 +1364,7 @@ def readArgument() -> argparse.Namespace:
     parser.add_argument(
         "--tools",
         default=[
+            "arcashla",
             "bwakit",
             "graphtyper",
             "optitype",
@@ -1333,6 +1372,7 @@ def readArgument() -> argparse.Namespace:
             "hlala",
             "hlascan",
             "kourami",
+            "polysolver",
             "vbseq",
             "xhla",
         ],
@@ -1361,7 +1401,7 @@ if __name__ == "__main__":
         index_hs38 = downloadRef("bwakit", name="hs38")
         index_hs38 = bwaIndex(index_hs38)
         samples_hs38 = bwaRun(samples, index_hs38)
-    if "vbseq" in args.tools:
+    if "vbseq" in args.tools or "polysolver" in args.tools:
         index_hs37 = downloadRef("bwakit", name="hs37")
         index_hs37 = bwaIndex(index_hs37)
         samples_hs37 = bwaRun(samples, index_hs37)
@@ -1464,10 +1504,16 @@ if __name__ == "__main__":
         if version == "origin":
             db_hla_for_arcas = downloadHLA("", version="3.24.0")
         index_arcas = arcasBuild(folder_arcas, db_hla_for_arcas)
+        # I found the decoy in hs38DH wll not be extracted
         samples_new = arcasPreprocess(samples_hs38dh)
         # samples_new = samples  # directly mapped
         samples_new = arcasRun(samples_new, index_arcas)
         samples_new = arcasReadResult(samples_new)
+        renameResult(samples_new, samples)
+
+    if "polysolver" in args.tools:
+        samples_new = polysolverRun(samples_hs37, "")
+        samples_new = polysolverReadResult(samples_new)
         renameResult(samples_new, samples)
 
     mergeResult(samples + ".hla_result.{}")
