@@ -34,6 +34,7 @@ images = {
     "optitype": "quay.io/biocontainers/optitype:1.3.5--hdfd78af_2",
     "arcas": "quay.io/biocontainers/arcas-hla:0.5.0--hdfd78af_1",
     "polysolver": "docker.io/sachet/polysolver:v4",
+    "soaphla": "localhost/linnil1/soaphla:1.0.0-pl526_3",
 }
 
 
@@ -1313,6 +1314,74 @@ def polysolverReadResult(input_name: str) -> str:
     return output_name
 
 
+def soaphlaDownload(folder: str = "soaphla") -> str:
+    """https://github.com/adefelicibus/soap-hla"""
+    if Path(folder).exists():
+        return folder
+    runShell(f"mkdir -p {folder}")
+    runShell(f"git clone https://github.com/adefelicibus/soap-hla.git {folder}/soaphla")
+    runShell(f"cd {folder}/soaphla && git checkout 407812d")
+    return folder
+
+
+def soaphlaBuildImage(folder: str) -> str:
+    """docker build -f soaphla.dockerfile"""
+    if checkImage("soaphla"):
+        return folder
+    buildImage("soaphla.dockerfile", images["soaphla"])
+    return folder
+
+
+def soaphlaBuild(folder: str, db_hla: str = "origin") -> str:
+    """https://github.com/adefelicibus/soap-hla"""
+    output_name = f"{folder}/hla_3090"
+    if Path(output_name).exists():
+        return output_name
+    runShell(f"cp -r {folder}/soaphla/data {output_name}")
+    return output_name
+
+
+def soaphlaRun(input_name: str, index: str) -> str:
+    """https://github.com/adefelicibus/soap-hla"""
+    output_name = input_name + ".soaphla_" + name2Single(index)
+    name = Path(input_name).name.split(".")[0]
+    if Path(f"{output_name}/{name}/{name}.type").exists():
+        return output_name
+    runDocker(
+        "soaphla",
+        f"MHC_autopipeline -i {input_name}.bam -od {output_name} -v hg19",
+        opts=f" -v $PWD/{index}:/opt/conda/share/database:ro ",
+    )
+    return output_name
+
+
+def soaphlaReadResult(input_name: str) -> str:
+    """
+    Read soaphla typing result into our hla_result format
+
+    Its format:
+    ```
+    ---     ---     50.00
+    B*82:02 ---     99.03
+    B*07:02:01      B*07:04 68.58
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    # if Path(f"{output_name}.tsv").exists():
+    #     return output_name
+    name = Path(input_name).name.split(".")[0]
+    txt = pd.read_csv(
+        f"{input_name}/{name}/{name}.type",
+        sep="\t",
+        names=["final_type", "second_type", "total_type_score", "tmp"],
+    )
+    alleles = [i for i in txt["final_type"] if i != "---"]
+    df = allelesToTable(alleles, default_gene=["A", "B", "C"])
+    df["name"] = input_name
+    df.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
 def renameResult(input_name: str, sample_name: str) -> str:
     """rename xx.*.hla_result.csv into xx.hla_result.{method}.csv"""
     suffix = input_name.split(sample_name)[1]
@@ -1373,6 +1442,7 @@ def readArgument() -> argparse.Namespace:
             "hlascan",
             "kourami",
             "polysolver",
+            "soaphla",
             "vbseq",
             "xhla",
         ],
@@ -1401,7 +1471,7 @@ if __name__ == "__main__":
         index_hs38 = downloadRef("bwakit", name="hs38")
         index_hs38 = bwaIndex(index_hs38)
         samples_hs38 = bwaRun(samples, index_hs38)
-    if "vbseq" in args.tools or "polysolver" in args.tools:
+    if "vbseq" in args.tools or "polysolver" in args.tools or "soaphla" in args.tools:
         index_hs37 = downloadRef("bwakit", name="hs37")
         index_hs37 = bwaIndex(index_hs37)
         samples_hs37 = bwaRun(samples, index_hs37)
@@ -1514,6 +1584,14 @@ if __name__ == "__main__":
     if "polysolver" in args.tools:
         samples_new = polysolverRun(samples_hs37, "")
         samples_new = polysolverReadResult(samples_new)
+        renameResult(samples_new, samples)
+
+    if "soaphla" in args.tools:
+        folder_soaphla = soaphlaDownload("soaphla")
+        folder_soaphla = soaphlaBuildImage(folder_soaphla)
+        index_soaphla = soaphlaBuild(folder_soaphla, "")
+        samples_new = soaphlaRun(samples_hs37, index_soaphla)
+        samples_new = soaphlaReadResult(samples_new)
         renameResult(samples_new, samples)
 
     mergeResult(samples + ".hla_result.{}")

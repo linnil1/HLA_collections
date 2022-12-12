@@ -13,6 +13,7 @@ Tools includes
 * HLAscan=2.1.4 (https://github.com/SyntekabioTools/HLAscan)
 * Kourami=0.9.6 (https://github.com/Kingsford-Group/kourami)
 * POLYSOLVER=v4 (https://software.broadinstitute.org/cancer/cga/polysolver)
+* soap-HLA=1.0.0 (https://github.com/adefelicibus/soap-hla)
 * HLA-VBSeq=11/22/2018 (https://nagasakilab.csml.org/hla/)
 * xHLA=34221ea (https://github.com/humanlongevity/HLA)
 
@@ -27,6 +28,7 @@ Some tools are able to update the index to the latest IMGT-HLA version
 * HLAscan (Unknwon, cannot change, not open-source)
 * Kourami (Provided 3.24.0 -> Current 3.49.0)
 * POLYSOLVER (Provided 3.10.0, cannot change)
+* soap-HLA (Provided 3.9.0, cannot change)
 * HLA-VBSeq (Provided 3.31.0 -> Current 3.49.0)
 * xHLA=34221ea (Unknwon -> Current 3.49.0)
 
@@ -194,6 +196,7 @@ Some HLA tools are not considered as TODO:
 * Ka, S., Lee, S., Hong, J. et al. HLAscan: genotyping of the HLA region using next-generation sequencing data. BMC Bioinformatics 18, 258 (2017). https://doi.org/10.1186/s12859-017-1671-3
 * Lee, H., Kingsford, C. Kourami: graph-guided assembly for novel human leukocyte antigen allele discovery. Genome Biol 19, 16 (2018). https://doi.org/10.1186/s13059-018-1388-2
 * Shukla, S., Rooney, M., Rajasagi, M. et al. Comprehensive analysis of cancer-associated somatic mutations in class I HLA genes. Nat Biotechnol 33, 1152–1158 (2015). https://doi.org/10.1038/nbt.3344
+* Cao H, Wu J, Wang Y, Jiang H, Zhang T, et al. (2013) An Integrated Tool to Study MHC Region: Accurate SNV Detection and HLA Genes Typing in Human MHC Region Using Targeted High-Throughput Sequencing. PLOS ONE 8(7): e69388. https://doi.org/10.1371/journal.pone.0069388`
 * Nariai, N., Kojima, K., Saito, S. et al. HLA-VBSeq: accurate HLA typing at full resolution from whole-genome sequencing data. BMC Genomics 16 (Suppl 2), S7 (2015). https://doi.org/10.1186/1471-2164-16-S2-S7
 * Xie, Chao, et al. "Fast and accurate HLA typing from short-read next-generation sequence data with xHLA." Proceedings of the National Academy of Sciences 114.30 (2017): 8059-8064.
 
