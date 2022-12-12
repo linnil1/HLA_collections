@@ -36,6 +36,7 @@ images = {
     "polysolver": "docker.io/sachet/polysolver:v4",
     "soaphla": "localhost/linnil1/soaphla:1.0.0-pl526_3",
     "hlaminer": "localhost/linnil1/hlaminer:1.4",
+    "seq2hla": "quay.io/biocontainers/seq2hla:2.2--2",
 }
 
 
@@ -632,7 +633,30 @@ def hlascanPreRun(input_name: str, index: str) -> str:
     output_name = input_name + ".hlascan_" + name2Single(index)
     if Path(f"{output_name}.HLA-C").exists():
         return output_name + ".{}"
-    for gene in ["HLA-A", "HLA-B", "HLA-C"]:
+    genes = [
+        "HLA-A",
+        "HLA-B",
+        "HLA-C",
+        "HLA-E",
+        "HLA-F",
+        "HLA-G",
+        "MICA",
+        "MICB",
+        "HLA-DMA",
+        "HLA-DMB",
+        "HLA-DOA",
+        "HLA-DOB",
+        "HLA-DPA1",
+        "HLA-DPB1",
+        "HLA-DQA1",
+        "HLA-DQB1",
+        "HLA-DRA",
+        "HLA-DRB1",
+        "HLA-DRB5",
+        "TAP1",
+        "TAP2",
+    ]
+    for gene in genes:
         with open(f"{output_name}.{gene}.sh", "w") as f:
             if Path(input_name + ".bam").exists():
                 if "hs37" in input_name:
@@ -1186,7 +1210,7 @@ def optitypeReadResult(input_name: str) -> str:
     if Path(f"{output_name}.tsv").exists():
         return output_name
     df = pd.read_csv(f"{input_name}._result.tsv", sep="\t")
-    alleles = df[["A1", "A2", "B1", "B2", "C1", "C2"]].values.tolist()[0]
+    alleles = df[["A1", "A2", "B1", "B2", "C1", "C2"]].dropna(axis=1).values.tolist()[0]
     df1 = allelesToTable(filter(None, alleles), default_gene=["A", "B", "C"])
     df1["name"] = input_name
     df1.to_csv(output_name + ".tsv", index=False, sep="\t")
@@ -1280,7 +1304,7 @@ def arcasReadResult(input_name: str) -> str:
 
 def polysolverRun(input_name: str, index: str) -> str:
     """https://software.broadinstitute.org/cancer/cga/polysolver_run"""
-    output_name = input_name + ".polysolver_origin"
+    output_name = input_name + ".polysolver_hla_3100"
     if Path(f"{output_name}/winners.hla.nofreq.txt").exists():
         return output_name
     runDocker(
@@ -1490,6 +1514,50 @@ def hlaminerReadResult(input_name: str) -> str:
     return output_name
 
 
+def seq2hlaRun(input_name: str, index: str = "") -> str:
+    """https://software.broadinstitute.org/cancer/cga/polysolver_run"""
+    output_name = input_name + ".seq2hla_origin"
+    if Path(f"{output_name}.-ClassI.HLAgenotype4digits").exists():
+        return output_name
+    runDocker(
+        "seq2hla",
+        f"seq2HLA -r {output_name}. -p {getThreads()}"
+        f" -1 {input_name}.read.1.fq.gz -2 {input_name}.read.2.fq.gz",
+    )
+    return output_name
+
+
+def seq2hlaReadResult(input_name: str) -> str:
+    """
+    Read seq2HLA 4digits txt into our hla_result format
+
+    Its format:
+    ```
+    A   A*36:01 0.520369    A*11:02'    0.0
+    B   B*08:01 0.0007307464    B*56:05'    0.0
+    C   C*07:01'    0.0 C*07:01 NA
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+    txt1 = pd.read_csv(f"{input_name}.-ClassI.HLAgenotype4digits", sep="\t")
+    txt2 = pd.read_csv(f"{input_name}.-ClassII.HLAgenotype4digits", sep="\t")
+    txt = pd.concat([txt1, txt2])
+    allele1 = txt[["Allele 1", "Confidence"]]
+    allele2 = txt[["Allele 2", "Confidence.1"]]
+    allele1 = allele1.rename(columns={"Allele 1": "Allele"})
+    allele2 = allele2.rename(
+        columns={"Allele 2": "Allele", "Confidence.1": "Confidence"}
+    )
+    df = pd.concat([allele1, allele2])
+    df = df[df["Confidence"] > 0.1]
+    df1 = allelesToTable(df["Allele"], default_gene=["A", "B", "C"])
+    df1["name"] = input_name
+    df1.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
 def renameResult(input_name: str, sample_name: str) -> str:
     """rename xx.*.hla_result.csv into xx.hla_result.{method}.csv"""
     suffix = input_name.split(sample_name)[1]
@@ -1552,6 +1620,7 @@ def readArgument() -> argparse.Namespace:
             "kourami",
             "polysolver",
             "soaphla",
+            "seq2hla",
             "vbseq",
             "xhla",
         ],
@@ -1710,5 +1779,10 @@ if __name__ == "__main__":
         # Yes, directly mapped on HLA sequences without any filtering
         samples_new = hlaminerRun(samples, index_hlaminer)
         samples_new = hlaminerReadResult(samples_new)
+
+    if "seq2hla" in args.tools:
+        samples_new = seq2hlaRun(samples, "")
+        samples_new = seq2hlaReadResult(samples_new)
+        renameResult(samples_new, samples)
 
     mergeResult(samples + ".hla_result.{}")
