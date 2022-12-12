@@ -4,6 +4,8 @@
 # data
 data/
 *_hisat-genotype.log
+formatdb.log
+HLAminer_HPRA_/
 
 # python
 __pycache__
@@ -21,3 +23,4 @@ graphtyper/
 optitype/
 arcas/
 soaphla/
+hlaminer/

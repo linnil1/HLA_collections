@@ -35,6 +35,7 @@ images = {
     "arcas": "quay.io/biocontainers/arcas-hla:0.5.0--hdfd78af_1",
     "polysolver": "docker.io/sachet/polysolver:v4",
     "soaphla": "localhost/linnil1/soaphla:1.0.0-pl526_3",
+    "hlaminer": "localhost/linnil1/hlaminer:1.4",
 }
 
 
@@ -1382,6 +1383,113 @@ def soaphlaReadResult(input_name: str) -> str:
     return output_name
 
 
+def hlaminerDownload(folder: str = "hlaminer") -> str:
+    """https://github.com/bcgsc/HLAminer"""
+    if Path(folder).exists():
+        return folder
+    runShell(f"mkdir -p {folder}")
+    runShell(
+        f"wget https://github.com/bcgsc/HLAminer/releases/download/v1.4/HLAminer_1-4.tar.gz -P {folder}"
+    )
+    runShell(f"tar -vxf {folder}/HLAminer_1-4.tar.gz -C {folder}")
+    return folder
+
+
+def hlaminerBuildImage(folder: str) -> str:
+    """docker build -f hlaminer.dockerfile"""
+    if checkImage("hlaminer"):
+        return folder
+    buildImage("hlaminer.dockerfile", images["hlaminer"])
+    return folder
+
+
+def hlaminerBuild(folder: str, db_hla: str = "origin") -> str:
+    """https://github.com/bcgsc/HLAminer"""
+    if db_hla == "origin":
+        output_name = f"{folder}/hla_3330"
+        if Path(output_name + "/HLA-I_II_GEN.fasta").exists():
+            return output_name
+        runShell(f"cp -r {folder}/HLAminer-1.4/HLAminer_v1.4/database {output_name}")
+        # I don't why the index is bad
+        runDocker("bwa", f"bwa index {input_name}")
+    else:
+        output_name = f"{folder}/{Path(db_hla).name}"
+        if Path(output_name + "/HLA-I_II_GEN.fasta").exists():
+            return output_name
+        runShell(f"mkdir -p {output_name}")
+        # see updateHLA-I_II_genomic.sh
+        genes = ["A", "B", "C", "F", "G", "H", "DP*", "DQ*", "DR*"]
+        with open(f"{output_name}/updateI_II_gen.sh", "w") as f:
+            f.write("cat ")
+            for gene in genes:
+                f.write(f"{db_hla}/fasta/{gene}_gen.fasta ")
+            f.write(
+                ' | perl -ne \'chomp;if(/\>\S+\s+(\S+)/){print ">$1\\n";}else{print "$_\\n";}\' '
+            )
+            f.write(f"> {output_name}/HLA-I_II_GEN.fasta")
+        runDocker("hlaminer", f"sh {output_name}/updateI_II_gen.sh")
+        bwaIndex(f"{output_name}/HLA-I_II_GEN.fasta")
+        runShell(f"cp {db_hla}/wmda/hla_nom_p.txt {output_name}")
+        runDocker(
+            "ubuntu",
+            f"{folder}/HLAminer-1.4/HLAminer_v1.4/bin/formatdb -p F -i {output_name}/HLA-I_II_GEN.fasta",
+        )
+
+    # file path hacking
+    runShell(f"mkdir -p HLAminer_HPRA_")
+    return output_name
+
+
+def hlaminerRun(input_name: str, index: str) -> str:
+    """https://github.com/bcgsc/HLAminer"""
+    output_name = input_name + ".hlaminer_" + name2Single(index)
+    if Path(output_name + ".csv").exists():
+        return output_name
+    index_ref = f"{index}/HLA-I_II_GEN.fasta"
+    runDocker(
+        "bwa",
+        f"bwa mem -t {getThreads()} {index_ref} "
+        f"{input_name}.read.1.fq.gz {input_name}.read.2.fq.gz -o {output_name}.sam ",
+    )
+    # file path hacking
+    runDocker(
+        "hlaminer",
+        f"HLAminer.pl -h {index_ref} -p {index}/hla_nom_p.txt -i 90 -q 10 -s 100 "
+        f" -a {output_name}.sam -l /../{output_name} ",
+    )
+    return output_name
+
+
+def hlaminerReadResult(input_name: str) -> str:
+    """
+    Read hlaminer csv result into our hla_result format
+
+    Its format:
+    ```
+    HLA-C
+        Prediction #1 - C*06
+            C*06:103,1676.94,1.63e-28,277.9
+            C*06:02P,202.00,8.18e-04,30.9
+        Prediction #2 - C*01
+            C*01:99,1010.00,3.65e-16,154.4
+            C*01:02P,994.00,3.65e-16,154.4
+
+    HLA-E
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+    alleles = []
+    for i in open(f"{input_name}.csv"):
+        if "Prediction" in i:
+            alleles.append(i.split("-")[1].strip())
+    df = allelesToTable(alleles, default_gene=["A", "B", "C"])
+    df["name"] = input_name
+    df.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
 def renameResult(input_name: str, sample_name: str) -> str:
     """rename xx.*.hla_result.csv into xx.hla_result.{method}.csv"""
     suffix = input_name.split(sample_name)[1]
@@ -1439,6 +1547,7 @@ def readArgument() -> argparse.Namespace:
             "optitype",
             "hisat",
             "hlala",
+            "hlaminer",
             "hlascan",
             "kourami",
             "polysolver",
@@ -1593,5 +1702,13 @@ if __name__ == "__main__":
         samples_new = soaphlaRun(samples_hs37, index_soaphla)
         samples_new = soaphlaReadResult(samples_new)
         renameResult(samples_new, samples)
+
+    if "hlaminer" in args.tools:
+        folder_hlaminer = hlaminerDownload("hlaminer")
+        folder_hlaminer = hlaminerBuildImage(folder_hlaminer)
+        index_hlaminer = hlaminerBuild(folder_hlaminer, db_hla)
+        # Yes, directly mapped on HLA sequences without any filtering
+        samples_new = hlaminerRun(samples, index_hlaminer)
+        samples_new = hlaminerReadResult(samples_new)
 
     mergeResult(samples + ".hla_result.{}")
