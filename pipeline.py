@@ -37,6 +37,7 @@ images = {
     "soaphla": "localhost/linnil1/soaphla:1.0.0-pl526_3",
     "hlaminer": "localhost/linnil1/hlaminer:1.4",
     "seq2hla": "quay.io/biocontainers/seq2hla:2.2--2",
+    "hlahd": "localhost/linnil1/hlahd:1.5.0",
 }
 
 
@@ -1558,6 +1559,101 @@ def seq2hlaReadResult(input_name: str) -> str:
     return output_name
 
 
+def hlahdDownload(folder: str = "hlahd", version: str = "1.5.0") -> str:
+    """https://www.genome.med.kyoto-u.ac.jp/HLA-HD/download-request/"""
+    if not Path(f"{folder}/hlahd.{version}.tar.gz").exists():
+        raise ValueError(
+            f"Require manually download requests and place the file here: {folder}/hlahd.{version}.tar.gz"
+        )
+    if Path(f"{folder}/hlahd").exists():
+        return folder
+    runShell(f"tar -vxf {folder}/hlahd.{version}.tar.gz -C {folder}")
+    runShell(f"mv {folder}/hlahd.{version} {folder}/hlahd")
+    # install.sh include index building So i separate it
+    runShell(
+        f"grep -h g++ {folder}/hlahd/install.sh {folder}/hlahd/update.dictionary.sh > {folder}/hlahd/compile.sh"
+    )
+    return folder
+
+
+def hlahdBuildImage(folder: str) -> str:
+    """docker build -f hlahd.dockerfile"""
+    if checkImage("hlahd"):
+        return folder
+    buildImage("hlahd.dockerfile", images["hlahd"])
+    # compile
+    runDocker("hlahd", f"sh -c 'cd {folder}/hlahd/ && bash compile.sh'")
+    # and copy bin to container again
+    buildImage("hlahd.dockerfile", images["hlahd"])
+    return folder
+
+
+def hlahdBuild(folder: str, db_hla: str = "origin") -> str:
+    """https://www.genome.med.kyoto-u.ac.jp/HLA-HD/"""
+    if db_hla == "origin":
+        output_name = f"{folder}/hla_3320"
+        if Path(output_name).exists():
+            return output_name
+        runShell(f"cp -r {folder}/hlahd/dictionary {output_name}")
+        runShell(f"cp -r {folder}/hlahd/HLA_gene.split.3.32.0.txt {output_name}/HLA_gene.split.txt")
+        runDocker("hlahd", f"bash -c 'cd {output_name} && bash bw_build.sh'")
+    else:
+        output_name = f"{folder}/{Path(db_hla).name}"
+        if Path(output_name).exists():
+            return output_name
+        runShell(f"mkdir -p {output_name}")
+        runShell(f"cp {db_hla}/hla.dat {output_name}/")
+        # see update.dictionary.sh
+        runDocker("hlahd", f"create_fasta_from_dat {output_name}/hla.dat {output_name}/ 150")
+        # why this script not exists
+        runDocker("hlahd", f"sh -c 'cd {output_name} && bash create_dir.sh'")
+        runDocker("hlahd", f"sh -c 'cd {output_name} && bash move_file.sh'")
+        runDocker("hlahd", f"sh -c 'cd {output_name} && bash bw_build.sh'")
+        runShell(f"cp -r {folder}/hlahd/HLA_gene.split.3.32.0.txt {output_name}/HLA_gene.split.txt")
+    return output_name
+
+
+def hlahdRun(input_name: str, index: str) -> str:
+    """https://www.genome.med.kyoto-u.ac.jp/HLA-HD/"""
+    output_name = input_name + ".hlahd_" + name2Single(index)
+    if Path(output_name + "/data/result").exists():
+        return output_name
+    runShell(f"mkdir -p {output_name}/data")
+    runDocker(
+        "hlahd",
+        f"hlahd.sh -t {getThreads()} {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz "
+        f"{index}/HLA_gene.split.txt {index}/ data {output_name}",
+    )
+    return output_name
+
+
+def hlahdReadResult(input_name: str) -> str:
+    """
+    Read hlahd final result into our hla_result format
+
+    Its format:
+    ```
+    A       Not typed       Not typed
+    B       HLA-B*07:02:01  HLA-B*82:02
+    C       Not typed       Not typed
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+    txt = pd.read_csv(
+        f"{input_name}/data/result/data_final.result.txt",
+        sep="\t",
+        names=["gene", "allele1", "allele2"],
+    )
+    alleles = list([*txt["allele1"], *txt["allele2"]])
+    alleles = [i.replace("HLA-", "") for i in alleles if i != "Not typed" and i != "-"]
+    df = allelesToTable(alleles, default_gene=["A", "B", "C"])
+    df["name"] = input_name
+    df.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
 def renameResult(input_name: str, sample_name: str) -> str:
     """rename xx.*.hla_result.csv into xx.hla_result.{method}.csv"""
     suffix = input_name.split(sample_name)[1]
@@ -1783,6 +1879,14 @@ if __name__ == "__main__":
     if "seq2hla" in args.tools:
         samples_new = seq2hlaRun(samples, "")
         samples_new = seq2hlaReadResult(samples_new)
+        renameResult(samples_new, samples)
+
+    if "hlahd" in args.tools:
+        folder_hlahd = hlahdDownload("hlahd")
+        folder_hlahd = hlahdBuildImage(folder_hlahd)
+        index_hlahd = hlahdBuild(folder_hlahd, db_hla)
+        samples_new = hlahdRun(samples, index_hlahd)
+        samples_new = hlahdReadResult(samples_new)
         renameResult(samples_new, samples)
 
     mergeResult(samples + ".hla_result.{}")
