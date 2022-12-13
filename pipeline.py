@@ -18,16 +18,17 @@ resources: dict[str, int] = {  # per sample
 }
 
 images = {
+    # gerneral tools
     "samtools": "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
-    "hisat": "localhost/linnil1/hisat2:1.3.3",
-    # "hisat": "quay.io/biocontainers/hisat2:2.2.1--h87f3376_4",
-    "bwa": "quay.io/biocontainers/bwa:0.7.17--hed695b0_7",
-    "bwakit": "quay.io/biocontainers/bwakit:0.7.17.dev1--hdfd78af_1",
     "java": "docker.io/library/openjdk:11-jdk",
     "ubuntu": "docker.io/library/ubuntu:22.04",
+    "bwa": "quay.io/biocontainers/bwa:0.7.17--hed695b0_7",
+    # tools
+    "hisat": "localhost/linnil1/hisat2:1.3.3",
+    "hisat2": "quay.io/biocontainers/hisat2:2.2.1--h87f3376_4",
+    "bwakit": "quay.io/biocontainers/bwakit:0.7.17.dev1--hdfd78af_1",
     "vbseq": "localhost/linnil1/vbseq:20181122",
     "hlala": "quay.io/biocontainers/hla-la:1.0.3--hd03093a_0",
-    # "hlala": " localhost/linnil1/hlala:alpine",  # linnil1-built for fun
     "kourami_preprocess": "localhost/linnil1/kourami_preprocess",
     "xhla": "localhost/linnil1/xhla",
     "graphtyper": "localhost/linnil1/graphtyper:2.7.5",
@@ -36,8 +37,9 @@ images = {
     "polysolver": "docker.io/sachet/polysolver:v4",
     "soaphla": "localhost/linnil1/soaphla:1.0.0-pl526_3",
     "hlaminer": "localhost/linnil1/hlaminer:1.4",
-    "seq2hla": "quay.io/biocontainers/seq2hla:2.2--2",
+    "seq2hla": "localhost/linnil1/seq2hla:2.2--2",
     "hlahd": "localhost/linnil1/hlahd:1.5.0",
+    "hlascan": "localhost/linnil1/hlascan:2.1.4",
 }
 
 
@@ -80,20 +82,30 @@ def runShell(cmd: str) -> subprocess.CompletedProcess[str]:
     return proc
 
 
-def buildImage(dockerfile: str, image: str) -> None:
+def buildImage(dockerfile: str, image: str, args: dict[str, str] = {}) -> None:
     """build docker image"""
-    runShell(f"podman build . -f {dockerfile} -t {image}")
+    txt_arg = ""
+    for key, value in args.items():
+        txt_arg += f" --build-arg {key}={value} "
+    runShell(f"podman build . -f {dockerfile} -t {image} {txt_arg}")
 
 
 def checkImage(image: str) -> bool:
     """check image exists"""
     try:
-        runShell(
-            f"sh -c 'if [ ! $(podman image ls {images[image]} -q) ]; then exit 1; fi'"
-        )
+        runShell(f"sh -c 'if [ ! $(podman image ls {image} -q) ]; then exit 1; fi'")
         return True
     except subprocess.CalledProcessError:
         return False
+
+
+def checkAndBuildImage(folder: str, image: str = "") -> None:
+    """Check image exists. If not existed, built it"""
+    if not image:
+        image = Path(folder).name
+    if not checkImage(images[image]):
+        buildImage(f"{image}.dockerfile", images[image], args={"folder": folder})
+    return folder
 
 
 def globAndRun(func: Callable[[str], str], input_name: str) -> str:
@@ -299,29 +311,16 @@ def downloadHLA(folder: str = "", version: str = "3.49.0") -> str:
     return folder
 
 
-def kouramiBuildImage(folder: str) -> str:
-    """
-    see https://github.com/Kingsford-Group/kourami/blob/master/preprocessing.md
-    and script/alignAndExtract_hs38DH
-    docker build -f kourami_preprocess.dockerfile
-    """
-    if checkImage("kourami_preprocess"):
-        return folder
-    buildImage("kourami_preprocess.dockerfile", images["kourami_preprocess"])
-    return folder
-
-
 def kouramiDownload(folder: str = "kourami") -> str:
     """https://github.com/Kingsford-Group/kourami"""
     if Path(folder + "/resources/hs38NoAltDH.fa").exists():
         return folder
     runShell(
-        "wget https://github.com/Kingsford-Group/kourami/releases/download/v0.9.6/kourami-0.9.6_bin.zip"
+        "wget https://github.com/Kingsford-Group/kourami/releases/download/v0.9.6/kourami-0.9.6_bin.zip "
+        f" -P {folder}"
     )
-    runShell("unzip kourami-0.9.6_bin.zip")
-    runShell(f"mv kourami-0.9.6 {folder}")
-    runShell(f"mv kourami-0.9.6_bin.zip {folder}")
-    # runDocker("bwakit", f"bash {folder}/scripts/download_grch38.sh hs38DH")
+    runShell(f"unzip {folder}/kourami-0.9.6_bin.zip -d {folder}")
+    runShell(f"mv {folder}/kourami-0.9.6/* {folder}")
     runDocker("bwa", f"bash {folder}/scripts/download_grch38.sh hs38NoAltDH")
     bwaIndex(folder + "/resources/hs38NoAltDH.fa")
     return folder
@@ -459,20 +458,9 @@ def hisatDownload(folder: str = "hisat") -> str:
     )
     runShell(f"tar -xvzf {folder}/grch38.tar.gz -C {folder}")
     runDocker(
-        "hisat", f"sh -c 'hisat2-inspect {folder}/grch38/genome > {folder}/genome.fa'"
+        "hisat2", f"sh -c 'hisat2-inspect {folder}/grch38/genome > {folder}/genome.fa'"
     )
     runDocker("samtools", f"samtools faidx {folder}/genome.fa")
-    return folder
-
-
-def hisatBuildImage(folder: str) -> str:
-    """docker build . -f hisat.dockerfile"""
-    if checkImage("hisat"):
-        return folder
-    runShell(
-        f"git clone --recurse-submodules https://github.com/DaehwanKimLab/hisat-genotype {folder}/hisat-genotype"
-    )
-    buildImage("hisat.dockerfile", images["hisat"])
     return folder
 
 
@@ -488,7 +476,7 @@ def hisatBuild(folder: str, db_hla: str = "origin") -> str:
         output_name = folder + "/" + Path(db_hla).name
     Path(output_name).mkdir(exist_ok=True)
 
-    if Path(f"{output_name}/hisatgenotype_db/HLA/msf").exists():
+    if Path(f"{output_name}/hla.graph.8.ht2").exists():
         return output_name
 
     # link basic things
@@ -504,6 +492,7 @@ def hisatBuild(folder: str, db_hla: str = "origin") -> str:
         runShell(
             f"git clone https://github.com/DaehwanKimLab/hisatgenotype_db {output_name}/hisatgenotype_db"
         )
+        runShell(f"cd {output_name}/hisatgenotype_db && git checkout d5d9b80")
     else:
         runShell(f"mkdir -p {output_name}/hisatgenotype_db/HLA")
         # Don't use all genes, risky to fail
@@ -549,6 +538,28 @@ def hisatBuild(folder: str, db_hla: str = "origin") -> str:
             runShell(
                 f"cp -r {db_hla}/msf/{gene}*  {output_name}/hisatgenotype_db/HLA/msf/"
             )
+
+    # Build the index by running one example
+    json.dump({"sanity_check": False}, open(f"{folder}/settings.json", "w"))
+    with open(f"{folder}/read.fq", "w") as f:
+        f.write(
+            """
+@B*82:02:01:02-746
+ACCCACCCGGACTCAGAGTCTCCTCAGACGCCGAGATGCGGGTCACGGCACCCCGAACCCTCCTCCTGCTGCTCTGGGGGGCCCTGGCCCTGACCGAGACCTGGGCTGGTGAGTGCGGGGTCGGGAGGGAAATGGCCTCTGTGGGGAGGA
++
+CCCGGGGGGGGGGJJJJJGCGJJ1G=GJJJJJGJCJGGJGGJ=JGJJJGJJGJJGJJGGGGJGGJGG=GCGGGGGC=G8CCGGGGCGGGGGGGGCGCGG1JCGGGGGGCGCCGG1GCGGCGGGGGGCGGCGCCGG=GGGGG1GCGGGCGC
+@B*82:02:01:02-744
+CCCTCACCCTGAGATGGGGTAAGGAGGGGGATGAGGGGTCATATCTCTTCTCAGGGAAAGCAGGAGCCCTTCTGGAGCCCTTCAGCAGGGTCAGGGCCCCTCATCTTCCCCTCCTTTCCCAGAGCCATCTTCCCAGTCCACCATCCCCAT
++
+CC1CGGGGGGGGGGJGJJJJJJJGGJJGJGGJGGJGCJJJJGJJJJJJGGGGJ=GJJCGJGGGGJ=G=GGG==GGGCGGGC=GGCCGGGCGGG8GG=CGGJCGGCGGGGG1GGGGGGGGCGC1GCG=GGGCGGGCGGG8=C=GGGCGGGG
+        """.strip()
+        )
+    runDocker(
+        "hisat",
+        f"hisatgenotype -z {output_name} --threads {getThreads()} "
+        f"--base hla --out-dir /tmp -v -U {folder}/read.fq",
+        opts=f"-v $PWD/{folder}/settings.json:/opt/hisat-genotype/devel/settings.json",
+    )
     return output_name
 
 
@@ -557,7 +568,6 @@ def hisatRun(input_name: str, index: str) -> str:
     output_name = input_name + ".hisat_" + name2Single(index)
     if len(glob(f"{output_name}/*.report")) > 0:
         return output_name
-    json.dump({"sanity_check": False}, open(f"{index}/settings.json", "w"))
     runDocker(
         "hisat",
         f"hisatgenotype -z {index} --threads {getThreads()} "
@@ -565,7 +575,6 @@ def hisatRun(input_name: str, index: str) -> str:
         f"--keep-alignment -v --keep-extract "
         f"-1 {input_name}.read.1.fq.gz "
         f"-2 {input_name}.read.2.fq.gz ",
-        opts=f"-v $PWD/{index}/settings.json:/opt/hisat-genotype/devel/settings.json",
     )
 
     # The folder has these three file
@@ -613,20 +622,17 @@ def hisatReadResult(input_name: str) -> str:
     return output_name
 
 
-def hlascanDownload(folder: str = "hlascan") -> str:
+def hlascanBuild(folder: str = "hlascan", db_hla: str = "origin") -> str:
     """https://github.com/SyntekabioTools/HLAscan"""
-    if Path(f"{folder}/hlascan").exists():
-        return folder
-    Path(folder).mkdir(exist_ok=True)
+    output_name = f"{folder}/origin"
+    if Path(output_name + ".IMGT").exists():
+        return output_name
     runShell(
-        "wget https://github.com/SyntekabioTools/HLAscan/releases/download/v2.0.0/dataset.zip -P {folder}"
+        f"wget https://github.com/SyntekabioTools/HLAscan/releases/download/v2.0.0/dataset.zip -P {folder}"
     )
     runShell(f"unzip {folder}/dataset.zip -d {folder}")
-    runShell(
-        f"wget https://github.com/SyntekabioTools/HLAscan/releases/download/v2.1.4/hla_scan_r_v2.1.4 -P {folder}"
-    )
-    runShell(f"ln -s hla_scan_r_v2.1.4 {folder}/hlascan")
-    return folder
+    runShell(f"mv {folder}/db/HLA-ALL.IMGT {output_name}.IMGT")
+    return output_name
 
 
 def hlascanPreRun(input_name: str, index: str) -> str:
@@ -667,12 +673,12 @@ def hlascanPreRun(input_name: str, index: str) -> str:
                 else:
                     raise ValueError("reference version cannot determine")
                 f.write(
-                    f"./{index}/hlascan -g {gene} -t {getThreads()} -d {index}/db/HLA-ALL.IMGT "
+                    f"hlascan -g {gene} -t {getThreads()} -d {index}.IMGT "
                     f"-b {input_name}.bam -v {version} > {output_name}.{gene}.txt"
                 )
             else:
                 f.write(
-                    f"./{index}/hlascan -g {gene} -t {getThreads()} -d {index}/db/HLA-ALL.IMGT "
+                    f"hlascan -g {gene} -t {getThreads()} -d {index}.IMGT "
                     f"-l {input_name}.read.1.fq.gz -r {input_name}.read.2.fq.gz > {output_name}.{gene}.txt"
                 )
     return output_name + ".{}"
@@ -690,7 +696,7 @@ def hlascanRun(input_name: str) -> str:
     if Path(f"{output_name}.txt").exists():
         return output_name
     try:
-        runDocker("ubuntu", f"bash {input_name}.sh")
+        runDocker("hlascan", f"bash {input_name}.sh")
     except subprocess.CalledProcessError as e:
         pass
     return output_name
@@ -726,22 +732,6 @@ def hlascanReadResult(input_name: str) -> str:
     df["name"] = input_name
     df.to_csv(output_name + ".tsv", index=False, sep="\t")
     return output_name
-
-
-def vbseqDownload(folder: str = "vbseq") -> str:
-    """https://nagasakilab.csml.org/hla/"""
-    Path(folder).mkdir(exist_ok=True)
-    return folder
-
-
-def vbseqBuildImage(folder: str) -> str:
-    """docker build -f vbseq.dockerfile"""
-    if checkImage("vbseq"):
-        return folder
-    runShell(f"wget https://nagasakilab.csml.org/hla/HLAVBSeq.jar -P {folder}")
-    runShell(f"wget https://nagasakilab.csml.org/hla/parse_result.pl -P {folder}")
-    buildImage("vbseq.dockerfile", images["vbseq"])
-    return folder
 
 
 def vbseqBuild(folder: str, db_hla: str = "origin") -> str:
@@ -853,23 +843,22 @@ def vbseqReadResult(input_name: str) -> str:
     return output_name
 
 
-def hlalaDownload(folder: str = "hlala") -> str:
+def hlalaBuild(folder: str = "hlala", db_hla: str = "origin") -> str:
     """https://github.com/DiltheyLab/HLA-LA"""
-    db = f"{folder}/PRG_MHC_GRCh38_withIMGT"
-    if Path(f"{db}/serializedGRAPH").exists():
-        return db
-    Path(folder).mkdir(exist_ok=True)
-    # buildImage("hlala.dockerfile", images['hlala'])  # linnil1-built
+    output_name = f"{folder}/origin"
+    if Path(f"{output_name}/serializedGRAPH").exists():
+        return output_name
     runShell(
         f"wget http://www.well.ox.ac.uk/downloads/PRG_MHC_GRCh38_withIMGT.tar.gz -P {folder}"
     )
     runShell(f"tar -vxf {folder}/PRG_MHC_GRCh38_withIMGT.tar.gz -C {folder}")
+    runShell(f"mv {folder}/PRG_MHC_GRCh38_withIMGT {output_name}")
     runDocker(
         "hlala",
         "sh -c 'export PATH=/usr/local/opt/hla-la/bin:$PATH && "
-        f"HLA-LA --workingDir ./ --action prepareGraph --PRG_graph_dir {db}'",
+        f"HLA-LA --workingDir ./ --action prepareGraph --PRG_graph_dir {output_name}'",
     )
-    return db
+    return output_name
 
 
 def hlalaRun(input_name: str, index: str) -> str:
@@ -932,23 +921,6 @@ def addUnmap(input_name: str) -> str:
     return output_name
 
 
-def xhlaDownload(folder: str = "xhla") -> str:
-    """https://github.com/humanlongevity/HLA"""
-    if Path(f"{folder}/HLA").exists():
-        return folder
-    Path(folder).mkdir(exist_ok=True)
-    runShell(f"git clone https://github.com/humanlongevity/HLA {folder}/HLA")
-    return folder
-
-
-def xhlaBuildImage(folder: str) -> str:
-    """docker build -f xhla.dockerfile"""
-    if checkImage("xhla"):
-        return folder
-    buildImage("xhla.dockerfile", images["xhla"])
-    return folder
-
-
 def xhlaBuild(folder: str, db_hla: str = "origin") -> str:
     """
     The HLA data is saved in image.
@@ -967,8 +939,9 @@ def xhlaBuild(folder: str, db_hla: str = "origin") -> str:
         runDocker("xhla", f"cp -r /opt/data {output_name}")
     else:
         output_name1 = output_name + "_tmp"
+        runShell(f"git clone https://github.com/humanlongevity/HLA {output_name1}")
+        runShell(f"cd {output_name1} && git checkout 34221ea")
         runShell(f"mkdir -p {output_name1}/raw")
-        runShell(f"cp -r {folder}/HLA/data {output_name1}/data")
         runShell(f"cp -r {db_hla}/alignments {output_name1}/raw")
         for i in ["nuc", "exon", "dna", "temp", "align"]:
             runShell(f"mkdir -p {output_name1}/data/{i}")
@@ -1042,26 +1015,12 @@ def xhlaReadResult(input_name: str) -> str:
     return output_name
 
 
-def graphtyperDownload(folder: str = "graphtyper") -> str:
-    """https://github.com/DecodeGenetics/graphtyper"""
-    if Path(f"{folder}").exists():
-        return folder
-    Path(folder).mkdir(exist_ok=True)
-    return folder
-
-
-def graphtyperBuildImage(folder: str) -> str:
-    """docker build -f graphtyper.dockerfile"""
-    if checkImage("graphtyper"):
-        return folder
-    buildImage("graphtyper.dockerfile", images["graphtyper"])
-    return folder
-
-
 def graphtyperBuild(
     folder: str, db_hla: str = "origin", index_hs38: str = "bwakit/hs38.fa"
 ) -> str:
     """
+    https://github.com/DecodeGenetics/graphtyper
+
     IMGT version 3.23.0 written in their paper.
     I'm not sure if database is updated.
 
@@ -1150,7 +1109,7 @@ def graphtyperReadResult(input_name: str) -> str:
     return output_name
 
 
-def optitypeDownload(folder: str = "optitype") -> str:
+def optitypeBuild(folder: str = "optitype", db_hla: str = "origin") -> str:
     """Get index from dockerfile"""
     output_name = folder + "/hla_3140"
     if Path(output_name).exists():
@@ -1218,21 +1177,13 @@ def optitypeReadResult(input_name: str) -> str:
     return output_name
 
 
-def arcasDownload(folder: str = "arcas") -> str:
-    """Get index from dockerfile. Yet you can download from git"""
-    if Path(folder).exists():
-        return folder
-    Path(folder).mkdir(exist_ok=True)
-    return folder
-
-
 def arcasBuild(folder: str, db_hla: str) -> str:
     """ArcasHLA doesn't provide downloadable HLA"""
     output_name = f"{folder}/{Path(db_hla).name}"
-    runShell(f"cp {db_hla}/hla.dat {output_name}/")
     if Path(f"{output_name}/hla_partial.idx").exists():
         return output_name
     Path(output_name).mkdir(exist_ok=True)
+    runShell(f"cp {db_hla}/hla.dat {output_name}/")
     runDocker(
         "arcas",
         "arcasHLA reference --rebuild",
@@ -1340,29 +1291,16 @@ def polysolverReadResult(input_name: str) -> str:
     return output_name
 
 
-def soaphlaDownload(folder: str = "soaphla") -> str:
-    """https://github.com/adefelicibus/soap-hla"""
-    if Path(folder).exists():
-        return folder
-    runShell(f"mkdir -p {folder}")
-    runShell(f"git clone https://github.com/adefelicibus/soap-hla.git {folder}/soaphla")
-    runShell(f"cd {folder}/soaphla && git checkout 407812d")
-    return folder
-
-
-def soaphlaBuildImage(folder: str) -> str:
-    """docker build -f soaphla.dockerfile"""
-    if checkImage("soaphla"):
-        return folder
-    buildImage("soaphla.dockerfile", images["soaphla"])
-    return folder
-
-
 def soaphlaBuild(folder: str, db_hla: str = "origin") -> str:
-    """https://github.com/adefelicibus/soap-hla"""
+    """
+    https://github.com/adefelicibus/soap-hla
+    Get index from git
+    """
     output_name = f"{folder}/hla_3090"
     if Path(output_name).exists():
         return output_name
+    runShell(f"git clone https://github.com/adefelicibus/soap-hla.git {folder}/soaphla")
+    runShell(f"cd {folder}/soaphla && git checkout 407812d")
     runShell(f"cp -r {folder}/soaphla/data {output_name}")
     return output_name
 
@@ -1408,35 +1346,17 @@ def soaphlaReadResult(input_name: str) -> str:
     return output_name
 
 
-def hlaminerDownload(folder: str = "hlaminer") -> str:
-    """https://github.com/bcgsc/HLAminer"""
-    if Path(folder).exists():
-        return folder
-    runShell(f"mkdir -p {folder}")
-    runShell(
-        f"wget https://github.com/bcgsc/HLAminer/releases/download/v1.4/HLAminer_1-4.tar.gz -P {folder}"
-    )
-    runShell(f"tar -vxf {folder}/HLAminer_1-4.tar.gz -C {folder}")
-    return folder
-
-
-def hlaminerBuildImage(folder: str) -> str:
-    """docker build -f hlaminer.dockerfile"""
-    if checkImage("hlaminer"):
-        return folder
-    buildImage("hlaminer.dockerfile", images["hlaminer"])
-    return folder
-
-
 def hlaminerBuild(folder: str, db_hla: str = "origin") -> str:
     """https://github.com/bcgsc/HLAminer"""
     if db_hla == "origin":
         output_name = f"{folder}/hla_3330"
         if Path(output_name + "/HLA-I_II_GEN.fasta").exists():
             return output_name
+        runShell(
+            f"wget https://github.com/bcgsc/HLAminer/releases/download/v1.4/HLAminer_1-4.tar.gz -P {folder}"
+        )
+        runShell(f"tar -vxf {folder}/HLAminer_1-4.tar.gz -C {folder}")
         runShell(f"cp -r {folder}/HLAminer-1.4/HLAminer_v1.4/database {output_name}")
-        # I don't why the index is bad
-        runDocker("bwa", f"bwa index {input_name}")
     else:
         output_name = f"{folder}/{Path(db_hla).name}"
         if Path(output_name + "/HLA-I_II_GEN.fasta").exists():
@@ -1453,13 +1373,11 @@ def hlaminerBuild(folder: str, db_hla: str = "origin") -> str:
             )
             f.write(f"> {output_name}/HLA-I_II_GEN.fasta")
         runDocker("hlaminer", f"sh {output_name}/updateI_II_gen.sh")
-        bwaIndex(f"{output_name}/HLA-I_II_GEN.fasta")
         runShell(f"cp {db_hla}/wmda/hla_nom_p.txt {output_name}")
-        runDocker(
-            "ubuntu",
-            f"{folder}/HLAminer-1.4/HLAminer_v1.4/bin/formatdb -p F -i {output_name}/HLA-I_II_GEN.fasta",
-        )
+        runDocker("hlaminer", f"formatdb -p F -i {output_name}/HLA-I_II_GEN.fasta")
 
+    # Index it (The index from downloaded files is very old bwa format)
+    runDocker("bwa", f"bwa index {output_name}/HLA-I_II_GEN.fasta")
     # file path hacking
     runShell(f"mkdir -p HLAminer_HPRA_")
     return output_name
@@ -1573,18 +1491,6 @@ def hlahdDownload(folder: str = "hlahd", version: str = "1.5.0") -> str:
     runShell(
         f"grep -h g++ {folder}/hlahd/install.sh {folder}/hlahd/update.dictionary.sh > {folder}/hlahd/compile.sh"
     )
-    return folder
-
-
-def hlahdBuildImage(folder: str) -> str:
-    """docker build -f hlahd.dockerfile"""
-    if checkImage("hlahd"):
-        return folder
-    buildImage("hlahd.dockerfile", images["hlahd"])
-    # compile
-    runDocker("hlahd", f"sh -c 'cd {folder}/hlahd/ && bash compile.sh'")
-    # and copy bin to container again
-    buildImage("hlahd.dockerfile", images["hlahd"])
     return folder
 
 

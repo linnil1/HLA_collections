@@ -189,11 +189,10 @@ filtering, thresholding on tool provided parameters (e.g. abundance).
 Some HLA tools are not considered as TODO:
 * HLA-PRG (The precessor of HLA-LA)
 * SNP2HLA (SNP array data as input)
-* HLAreporter (The resources is GONE)
 
 
 These tools require manully download requests:
-* HLA-HD
+* HLA-HD  (copy hlahd/hlahd.1.5.0.tar.gz)
 * PHLAT
 * PolyPheMe
 
@@ -203,6 +202,7 @@ TODO:
 * HLAssign (https://www.ikmb.uni-kiel.de/resources/download-tools/software/hlassign)
 * HLAProfiler (https://github.com/ExpressionAnalysis/HLAProfiler)
 * ATHLATES (https://github.com/cliu32/athlates)
+* HLAreporter (https://github.com/jiaolongsun/hlareporter)
 
 
 ## Reference
