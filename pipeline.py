@@ -1,15 +1,35 @@
+"""
+File: pipelilne.py of HLA_collections
+Author: linnil1
+Description: Write the build, running and read parsing sciprts
+in the Python functions of each HLA tools.
+
+Design Pattern:
+* `folder  = createFolder("", "xxx")          `  Folder creation
+* `folder  = xxxDownload(folder)              `  Download data that required to be used no matter the index is
+* `folder  = checkAndBuildImage(folder)       `  Build docker image
+* `index   = xxxBuild(folder, db_hla)         `  Build HLA index from db_hla (The path of IMGT'DB)
+* `samples = xxxRun(samples_fq, index)        `  Run the tool by giving index
+* `samples = xxxReadResult(samples)           `  Read the result from the tool's output and save as tsv
+* `samples = renameResult(samples, samples_fq)`  Rename the hla result file for more organized
+
+If you want to update the version of tool but not have differnet version tool at the same time,
+just change the image name, folder name and xxx.dockerfile,
+Mostly it will work.
+"""
+
 from glob import glob
+from typing import Iterable, Callable
 from pathlib import Path
 from itertools import chain
-from typing import Iterable, Callable
 from collections import defaultdict
 import re
-import uuid
-import json
 import gzip
+import json
+import uuid
+import pandas as pd
 import argparse
 import subprocess
-import pandas as pd
 
 
 resources: dict[str, int] = {  # per sample
@@ -19,37 +39,62 @@ resources: dict[str, int] = {  # per sample
 
 images = {
     # gerneral tools
-    "samtools": "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
-    "java": "docker.io/library/openjdk:11-jdk",
-    "ubuntu": "docker.io/library/ubuntu:22.04",
     "bwa": "quay.io/biocontainers/bwa:0.7.17--hed695b0_7",
+    "java": "docker.io/library/openjdk:11-jdk",
+    "samtools": "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
     # tools
+    "arcas": "quay.io/biocontainers/arcas-hla:0.5.0--hdfd78af_1",
+    "bwakit": "quay.io/biocontainers/bwakit:0.7.17.dev1--hdfd78af_1",
+    "graphtyper": "localhost/linnil1/graphtyper:2.7.5",
     "hisat": "localhost/linnil1/hisat2:1.3.3",
     "hisat2": "quay.io/biocontainers/hisat2:2.2.1--h87f3376_4",
-    "bwakit": "quay.io/biocontainers/bwakit:0.7.17.dev1--hdfd78af_1",
-    "vbseq": "localhost/linnil1/vbseq:20181122",
-    "hlala": "quay.io/biocontainers/hla-la:1.0.3--hd03093a_0",
-    "kourami_preprocess": "localhost/linnil1/kourami_preprocess",
-    "xhla": "localhost/linnil1/xhla",
-    "graphtyper": "localhost/linnil1/graphtyper:2.7.5",
-    "optitype": "quay.io/biocontainers/optitype:1.3.5--hdfd78af_2",
-    "arcas": "quay.io/biocontainers/arcas-hla:0.5.0--hdfd78af_1",
-    "polysolver": "docker.io/sachet/polysolver:v4",
-    "soaphla": "localhost/linnil1/soaphla:1.0.0-pl526_3",
-    "hlaminer": "localhost/linnil1/hlaminer:1.4",
-    "seq2hla": "localhost/linnil1/seq2hla:2.2--2",
     "hlahd": "localhost/linnil1/hlahd:1.5.0",
+    "hlala": "quay.io/biocontainers/hla-la:1.0.3--hd03093a_0",
+    "hlaminer": "localhost/linnil1/hlaminer:1.4",
     "hlascan": "localhost/linnil1/hlascan:2.1.4",
+    "kourami_preprocess": "localhost/linnil1/kourami_preprocess",
+    "optitype": "quay.io/biocontainers/optitype:1.3.5--hdfd78af_2",
+    "polysolver": "docker.io/sachet/polysolver:v4",
+    "seq2hla": "localhost/linnil1/seq2hla:2.2--2",
+    "soaphla": "localhost/linnil1/soaphla:1.0.0-pl526_3",
+    "vbseq": "localhost/linnil1/vbseq:20181122",
+    "xhla": "localhost/linnil1/xhla",
+}
+
+folders = {
+    "arcas": "arcas",
+    "bwakit": "bwakit",
+    "graphtyper": "graphtyper",
+    "hisat": "hisat",
+    "hlahd": "hlahd",
+    "hlala": "hlala",
+    "hlaminer": "hlaminer",
+    "hlascan": "hlascan",
+    "kourami": "kourami",
+    "optitype": "optitype",
+    "seq2hla": "seq2hla",
+    "soaphla": "soaphla",
+    "vbseq": "vbseq",
+    "xhla": "xhla",
 }
 
 
 def getThreads() -> int:
+    """Get number of available threads"""
     return resources["threads"]
 
 
 def setThreads(threads: int) -> None:
+    """Set number of available threads"""
     global resources
     resources["threads"] = threads
+
+
+def createFolder(base_folder: str = "", name: str = "") -> str:
+    """Create folder at parent/base_folder"""
+    output_name = base_folder + folders[name]
+    Path(output_name).mkdir(exist_ok=True)
+    return output_name
 
 
 def name2Single(name: str) -> str:
@@ -57,12 +102,14 @@ def name2Single(name: str) -> str:
     return name.replace("/", "_").replace(".", "_")
 
 
-def runDocker(image: str, cmd: str, opts: str = "") -> subprocess.CompletedProcess[str]:
+def runDocker(
+    image: str, cmd: str, opts: str = "", chdir: str = ""
+) -> subprocess.CompletedProcess[str]:
     """run docker container"""
     image = images.get(image, image)
     random_name = str(uuid.uuid4()).split("-", 1)[0]
     cmd_all = (
-        f"podman run -it --rm -u root -w /app -v $PWD:/app "
+        f"podman run -it --rm -u root -w /app/{chdir} -v $PWD:/app "
         f"--name {random_name} "
         f"{opts} {image} {cmd}"
     )
@@ -99,7 +146,7 @@ def checkImage(image: str) -> bool:
         return False
 
 
-def checkAndBuildImage(folder: str, image: str = "") -> None:
+def checkAndBuildImage(folder: str, image: str = "") -> str:
     """Check image exists. If not existed, built it"""
     if not image:
         image = Path(folder).name
@@ -212,7 +259,7 @@ def downloadSample(folder: str = "data") -> str:
     )
     runDocker(
         "samtools",
-        f"samtools view -@{getThreads()} -n {name}.download.cram -o {name}.bam",
+        f"samtools view -@{getThreads()} {name}.download.cram -o {name}.bam",
     )
     output_name = bam2Fastq(name)
     runShell(f"rm {name}.bam")
@@ -247,7 +294,6 @@ def downloadRef(folder: str = "bwakit", name: str = "hs38DH") -> str:
         return f"{folder}/{name}.fa"
 
     runDocker("bwakit", f"run-gen-ref {name}")
-    Path(folder).mkdir(exist_ok=True)
     runShell(f"mv {name}.* {folder}")
     return f"{folder}/{name}.fa"
 
@@ -333,12 +379,12 @@ def kouramiBuild(folder: str, db_hla: str = "origin") -> str:
     """
     # this line download v3.24 and save the db in {folder}/db
     if db_hla == "origin":
-        kourami_db = f"{folder}/hla_3240"
+        output_name = f"{folder}/hla_3240"
     else:
-        kourami_db = f"{folder}/{Path(db_hla).name}"
+        output_name = f"{folder}/{Path(db_hla).name}"
 
-    if Path(f"{kourami_db}/All_FINAL_with_Decoy.fa.gz").exists():
-        return kourami_db
+    if Path(f"{output_name}/All_FINAL_with_Decoy.fa.gz").exists():
+        return output_name
 
     if db_hla == "origin":
         # scripts/download_panel.sh
@@ -347,10 +393,10 @@ def kouramiBuild(folder: str, db_hla: str = "origin") -> str:
             f"wget https://github.com/Kingsford-Group/kourami/releases/download/v0.9/kouramiDB_3.24.0.tar.gz -P {folder}"
         )
         runShell(f"tar -vxf {folder}/kouramiDB_3.24.0.tar.gz -C {folder}")
-        runShell(f"mv {folder}/db {kourami_db}")
+        runShell(f"mv {folder}/db {output_name}")
     else:
         # Kourami's bug?
-        # runDocker("kourami", f"java -cp {folder}/build/Kourami.jar FormatIMGT {db_hla}/alignments/ . {kourami_db}")
+        # runDocker("kourami", f"java -cp {folder}/build/Kourami.jar FormatIMGT {db_hla}/alignments/ . {output_name}")
         runShell(f"cp -r {db_hla}/alignments {folder}/tmp_alignments")
         runShell(
             f"wget https://raw.githubusercontent.com/ANHIG/IMGTHLA/3240/alignments/Y_nuc.txt -O {folder}/tmp_alignments/Y_nuc.txt"
@@ -360,15 +406,15 @@ def kouramiBuild(folder: str, db_hla: str = "origin") -> str:
         )
         runDocker(
             "java",
-            f"java -cp {folder}/build/Kourami.jar FormatIMGT {folder}/tmp_alignments/ . {kourami_db}",
+            f"java -cp {folder}/build/Kourami.jar FormatIMGT {folder}/tmp_alignments/ . {output_name}",
         )
         # runShell(f"rm -r {folder}/tmp_alignments")
         runShell(
-            f"cat {kourami_db}/*.merged.fa {folder}/resources/HLA_decoys.fa | gzip > {kourami_db}/All_FINAL_with_Decoy.fa.gz"
+            f"cat {output_name}/*.merged.fa {folder}/resources/HLA_decoys.fa | gzip > {output_name}/All_FINAL_with_Decoy.fa.gz"
         )
-        runShell(f"cp {db_hla}/wmda/hla_nom_g.txt {kourami_db}")
-    bwaIndex(kourami_db + "/All_FINAL_with_Decoy.fa.gz")
-    return kourami_db
+        runShell(f"cp {db_hla}/wmda/hla_nom_g.txt {output_name}")
+    bwaIndex(output_name + "/All_FINAL_with_Decoy.fa.gz")
+    return output_name
 
 
 def kouramiPreprocess(input_name: str, index: str, kourami_folder: str = "") -> str:
@@ -446,7 +492,6 @@ def hisatDownload(folder: str = "hisat") -> str:
     """Download genome databse. see hisatgenotype_modules/hisatgenotype_typing_common.py"""
     if Path(f"{folder}/genome.fa.fai").exists():
         return folder
-    Path(folder).mkdir(exist_ok=True)
     # download_genotype_genome in hisatgenotype_modules/hisatgenotype_typing_common.py
     runShell(
         f"wget ftp://ftp.ccb.jhu.edu/pub/infphilo/hisat-genotype/data/genotype_genome_20180128.tar.gz -P {folder}"
@@ -481,11 +526,11 @@ def hisatBuild(folder: str, db_hla: str = "origin") -> str:
 
     # link basic things
     files_genome = glob(folder + "/genotype_genome*")
-    for f in files_genome:
-        runShell(f"ln -s ../{Path(f).name} {output_name}/")
-    runShell(f"    ln -s ../grch38         {output_name}/")
-    runShell(f"    ln -s ../genome.fa      {output_name}/")
-    runShell(f"    ln -s ../genome.fa.fai  {output_name}/")
+    for file_genome in files_genome:
+        runShell(f"ln -s ../{Path(file_genome).name} {output_name}/")
+    runShell(f"    ln -s ../grch38                   {output_name}/")
+    runShell(f"    ln -s ../genome.fa                {output_name}/")
+    runShell(f"    ln -s ../genome.fa.fai            {output_name}/")
 
     # download HLA related things
     if db_hla == "origin":
@@ -558,7 +603,7 @@ CC1CGGGGGGGGGGJGJJJJJJJGGJJGJGGJGGJGCJJJJGJJJJJJGGGGJ=GJJCGJGGGGJ=G=GGG==GGGCGGG
         "hisat",
         f"hisatgenotype -z {output_name} --threads {getThreads()} "
         f"--base hla --out-dir /tmp -v -U {folder}/read.fq",
-        opts=f"-v $PWD/{folder}/settings.json:/opt/hisat-genotype/devel/settings.json",
+        opts=f"-v {Path(folder).absolute()}/settings.json:/opt/hisat-genotype/devel/settings.json",
     )
     return output_name
 
@@ -776,7 +821,7 @@ def vbseqPreprocess(input_name: str) -> str:
             6:30225339-30236728 6:31369356-31385092 6:31460658-31480901 6:29766192-29772202 \
             6:32810986-32823755 6:32779544-32808599 6:29756731-29767588 \
             -o {output_name}.bam
-    """,
+        """,
     )
     return bam2Fastq(output_name)
 
@@ -871,22 +916,21 @@ def hlalaRun(input_name: str, index: str) -> str:
         "hlala",
         f"HLA-LA.pl --workingDir {output_name} --graph . --maxThreads {getThreads()} "
         f"--BAM {input_name}.bam --sampleID data ",
-        opts=f" -v $PWD/{index}:/usr/local/opt/hla-la/graphs/",
-        # opts=f" -v $PWD/{index}:/usr/local/bin/HLA-LA/graphs/",  # linnil1-built
+        opts=f" -v {Path(index).absolute()}:/usr/local/opt/hla-la/graphs/",
     )
     return output_name
 
 
 def hlalaReadResult(input_name: str) -> str:
     """
-        Read HLA-LA guess into our hla_result format
+    Read HLA-LA guess into our hla_result format
 
-        It's format:
-        ```
+    It's format:
+    ```
     Locus	Chromosome	Allele	Q1	...
     A	1	A*11:01:01G	1	-70	...
     A	2	A*01:01:01G	1	-70	...
-        ```
+    ```
     """
     output_name = input_name + ".hla_result"
     if Path(f"{output_name}.tsv").exists():
@@ -945,10 +989,11 @@ def xhlaBuild(folder: str, db_hla: str = "origin") -> str:
         runShell(f"cp -r {db_hla}/alignments {output_name1}/raw")
         for i in ["nuc", "exon", "dna", "temp", "align"]:
             runShell(f"mkdir -p {output_name1}/data/{i}")
-        runDocker("xhla", f"sh -c 'cd {output_name1}/data/ && bash script/batch.sh'")
+        runDocker("xhla", f"bash script/batch.sh", chdir=f"{output_name1}/data")
         runDocker(
             "xhla",
-            f"sh -c 'cd {output_name1}/data/ && diamond makedb --in hla.faa --db hla.dmnd'",
+            "diamond makedb --in hla.faa --db hla.dmnd",
+            chdir=f"{output_name1}/data/",
         )
         runShell(f"mv {output_name1}/data {output_name}")
         # runShell(f"rm -rf {output_name1}")
@@ -970,7 +1015,7 @@ def xhlaRun(input_name: str, index: str) -> str:
     runDocker(
         "xhla",
         f"typer.sh {input_name}.bam {id} full",
-        opts=f"-v $PWD/{index}:/opt/data ",
+        opts=f"-v {Path(index).absolute()}:/opt/data ",
     )
     runShell(f"mv hla-{id}/{id}* {Path(output_name).parent}")
     runShell(f"rm hla-{id} -r")
@@ -1114,7 +1159,6 @@ def optitypeBuild(folder: str = "optitype", db_hla: str = "origin") -> str:
     output_name = folder + "/hla_3140"
     if Path(output_name).exists():
         return output_name
-    Path(folder).mkdir(exist_ok=True)
     runDocker("optitype", f"cp -r /usr/local/bin/data/ {output_name}")
     with open(f"{output_name}/config.ini", "w") as f:
         f.write(
@@ -1149,8 +1193,8 @@ def optitypeRun(input_name: str, index: str) -> str:
         f" --input {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz"
         f" --outdir {parent} --prefix {name}.",
         opts=(
-            f" -v $PWD/{index}:/usr/local/bin/data "
-            f" -v $PWD/{index}/config.ini:/usr/local/bin/config.ini "
+            f" -v {Path(index).absolute()}:/usr/local/bin/data "
+            f" -v {Path(index).absolute()}/config.ini:/usr/local/bin/config.ini "
         ),
     )
     return output_name
@@ -1188,8 +1232,8 @@ def arcasBuild(folder: str, db_hla: str) -> str:
         "arcas",
         "arcasHLA reference --rebuild",
         opts=(
-            f" -v $PWD/{db_hla}:/usr/local/share/arcas-hla-0.5.0-1/dat/IMGTHLA/:ro "
-            f" -v $PWD/{output_name}:/usr/local/share/arcas-hla-0.5.0-1/dat/ref/ "
+            f" -v {Path(db_hla).absolute()}:/usr/local/share/arcas-hla-0.5.0-1/dat/IMGTHLA/:ro "
+            f" -v {Path(output_name).absolute()}:/usr/local/share/arcas-hla-0.5.0-1/dat/ref/ "
         ),
     )
     return output_name
@@ -1225,8 +1269,8 @@ def arcasRun(input_name: str, index: str) -> str:
         f"arcasHLA genotype -o {output_name} -t {getThreads()} -v "
         f"{input_name}.read.1.fq.gz {input_name}.read.2.fq.gz",
         opts=(
-            f" -v $PWD/{index}:/usr/local/share/arcas-hla-0.5.0-1/dat/ref:ro "
-            f" -v $PWD/{index}/hla.dat:/usr/local/share/arcas-hla-0.5.0-1/dat/IMGTHLA/hla.dat:ro "
+            f" -v {Path(index).absolute()}:/usr/local/share/arcas-hla-0.5.0-1/dat/ref:ro "
+            f" -v {Path(index).absolute()}/hla.dat:/usr/local/share/arcas-hla-0.5.0-1/dat/IMGTHLA/hla.dat:ro "
         ),
     )
     return output_name
@@ -1314,7 +1358,7 @@ def soaphlaRun(input_name: str, index: str) -> str:
     runDocker(
         "soaphla",
         f"MHC_autopipeline -i {input_name}.bam -od {output_name} -v hg19",
-        opts=f" -v $PWD/{index}:/opt/conda/share/database:ro ",
+        opts=f" -v {Path(index).absolute()}:/opt/conda/share/database:ro ",
     )
     return output_name
 
@@ -1331,8 +1375,8 @@ def soaphlaReadResult(input_name: str) -> str:
     ```
     """
     output_name = input_name + ".hla_result"
-    # if Path(f"{output_name}.tsv").exists():
-    #     return output_name
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
     name = Path(input_name).name.split(".")[0]
     txt = pd.read_csv(
         f"{input_name}/{name}/{name}.type",
@@ -1433,15 +1477,27 @@ def hlaminerReadResult(input_name: str) -> str:
     return output_name
 
 
-def seq2hlaRun(input_name: str, index: str = "") -> str:
-    """https://software.broadinstitute.org/cancer/cga/polysolver_run"""
-    output_name = input_name + ".seq2hla_origin"
+def seq2hlaBuild(folder: str, db_hla: str = "origin") -> str:
+    """https://github.com/TRON-Bioinformatics/seq2HLA"""
+    output_name = f"{folder}/origin"
+    if Path(output_name).exists():
+        return output_name
+    runDocker(
+        "seq2hla", f"cp -r /usr/local/share/seq2hla-2.2-2/references {output_name}"
+    )
+    return output_name
+
+
+def seq2hlaRun(input_name: str, index: str) -> str:
+    """https://github.com/TRON-Bioinformatics/seq2HLA"""
+    output_name = input_name + ".seq2hla_" + name2Single(index)
     if Path(f"{output_name}.-ClassI.HLAgenotype4digits").exists():
         return output_name
     runDocker(
         "seq2hla",
         f"seq2HLA -r {output_name}. -p {getThreads()}"
         f" -1 {input_name}.read.1.fq.gz -2 {input_name}.read.2.fq.gz",
+        opts=f" -v {Path(index).absolute()}:/usr/local/share/seq2hla-2.2-2/references ",
     )
     return output_name
 
@@ -1501,8 +1557,10 @@ def hlahdBuild(folder: str, db_hla: str = "origin") -> str:
         if Path(output_name).exists():
             return output_name
         runShell(f"cp -r {folder}/hlahd/dictionary {output_name}")
-        runShell(f"cp -r {folder}/hlahd/HLA_gene.split.3.32.0.txt {output_name}/HLA_gene.split.txt")
-        runDocker("hlahd", f"bash -c 'cd {output_name} && bash bw_build.sh'")
+        runShell(
+            f"cp -r {folder}/hlahd/HLA_gene.split.3.32.0.txt {output_name}/HLA_gene.split.txt"
+        )
+        runDocker("hlahd", "bash bw_build.sh", chdir=output_name)
     else:
         output_name = f"{folder}/{Path(db_hla).name}"
         if Path(output_name).exists():
@@ -1510,12 +1568,16 @@ def hlahdBuild(folder: str, db_hla: str = "origin") -> str:
         runShell(f"mkdir -p {output_name}")
         runShell(f"cp {db_hla}/hla.dat {output_name}/")
         # see update.dictionary.sh
-        runDocker("hlahd", f"create_fasta_from_dat {output_name}/hla.dat {output_name}/ 150")
+        runDocker(
+            "hlahd", f"create_fasta_from_dat {output_name}/hla.dat {output_name}/ 150"
+        )
         # why this script not exists
-        runDocker("hlahd", f"sh -c 'cd {output_name} && bash create_dir.sh'")
-        runDocker("hlahd", f"sh -c 'cd {output_name} && bash move_file.sh'")
-        runDocker("hlahd", f"sh -c 'cd {output_name} && bash bw_build.sh'")
-        runShell(f"cp -r {folder}/hlahd/HLA_gene.split.3.32.0.txt {output_name}/HLA_gene.split.txt")
+        runDocker("hlahd", f"bash create_dir.sh", chdir=output_name)
+        runDocker("hlahd", f"bash move_file.sh", chdir=output_name)
+        runDocker("hlahd", f"bash bw_build.sh", chdir=output_name)
+        runShell(
+            f"cp -r {folder}/hlahd/HLA_gene.split.3.32.0.txt {output_name}/HLA_gene.split.txt"
+        )
     return output_name
 
 
@@ -1551,7 +1613,10 @@ def hlahdReadResult(input_name: str) -> str:
         f"{input_name}/data/result/data_final.result.txt",
         sep="\t",
         names=["gene", "allele1", "allele2"],
+        usecols=[0, 1, 2],
     )
+    txt = txt.dropna()
+    # print(txt)
     alleles = list([*txt["allele1"], *txt["allele2"]])
     alleles = [i.replace("HLA-", "") for i in alleles if i != "Not typed" and i != "-"]
     df = allelesToTable(alleles, default_gene=["A", "B", "C"])
@@ -1608,21 +1673,23 @@ def readArgument() -> argparse.Namespace:
         help="samples name. Use {} to indicate wildcard.",
     )
     parser.add_argument("--version", default="origin", help="IMGT-HLA version")
+    parser.add_argument("--thread", default=4, help="Number of threads")
     parser.add_argument(
         "--tools",
         default=[
-            "arcashla",
+            # "arcashla",  # easy to fail
             "bwakit",
             "graphtyper",
-            "optitype",
             "hisat",
+            # 'hlahd', # require download requests, disable as default
             "hlala",
             "hlaminer",
             "hlascan",
             "kourami",
+            "optitype",
             "polysolver",
-            "soaphla",
             "seq2hla",
+            "soaphla",
             "vbseq",
             "xhla",
         ],
@@ -1636,163 +1703,176 @@ def readArgument() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = readArgument()
+    setThreads(args.thread)
     if args.sample_name == "example":
-        samples = downloadSample()
+        samples_fq = downloadSample()
     else:
-        samples = str(args.sample_name)
+        samples_fq = str(args.sample_name)
     version = args.version
     if version == "origin":
         db_hla = "origin"
     else:
         db_hla = downloadHLA("", version=version)
 
-    # bwa
-    if "xhla" in args.tools or "graphtyper" in args.tools:
-        index_hs38 = downloadRef("bwakit", name="hs38")
-        index_hs38 = bwaIndex(index_hs38)
-        samples_hs38 = bwaRun(samples, index_hs38)
+    # hs37
+    folder_bwa = createFolder("", "bwakit")
     if "vbseq" in args.tools or "polysolver" in args.tools or "soaphla" in args.tools:
-        index_hs37 = downloadRef("bwakit", name="hs37")
+        index_hs37 = downloadRef(folder_bwa, name="hs37")
         index_hs37 = bwaIndex(index_hs37)
-        samples_hs37 = bwaRun(samples, index_hs37)
+        samples_hs37 = bwaRun(samples_fq, index_hs37)
 
-    # bwakit
+    if "polysolver" in args.tools:
+        samples = polysolverRun(samples_hs37, "")
+        samples = polysolverReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
+    if "soaphla" in args.tools:
+        folder = createFolder("", "soaphla")
+        folder = checkAndBuildImage(folder)
+        index = soaphlaBuild(folder, db_hla)
+        samples = soaphlaRun(samples_hs37, index)
+        samples = soaphlaReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
+    if "vbseq" in args.tools:
+        folder = createFolder("", "vbseq")
+        folder = checkAndBuildImage(folder)
+        index = vbseqBuild(folder, db_hla)
+        samples = vbseqPreprocess(samples_hs37)
+        # samples_new = samples  # directly mapped on HLA
+        samples = vbseqRun(samples, index)
+        samples = vbseqReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
+    # hs38
+    if "graphtyper" in args.tools or "xhla" in args.tools:
+        index_hs38 = downloadRef(folder_bwa, name="hs38")
+        index_hs38 = bwaIndex(index_hs38)
+        samples_hs38 = bwaRun(samples_fq, index_hs38)
+
+    if "graphtyper" in args.tools:
+        folder = createFolder("", "graphtyper")
+        folder = checkAndBuildImage(folder)
+        index = graphtyperBuild(folder, db_hla, index_hs38)
+        samples = graphtyperPreRun(samples_hs38, index)
+        samples = globAndRun(graphtyperRun, samples)
+        samples = graphtyperReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
+    if "xhla" in args.tools:
+        folder = createFolder("", "xhla")
+        folder = checkAndBuildImage(folder)
+        index = xhlaBuild("xhla", db_hla)
+        samples = xhlaRun(samples_hs38, index)
+        samples = xhlaReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
+    # hs38DH
     if (
         "bwakit" in args.tools
-        or "kourami" in args.tools
-        or "hlascan" in args.tools
-        or "hlala" in args.tools
         or "arcashla" in args.tools
+        or "hlala" in args.tools
+        or "hlascan" in args.tools
+        or "kourami" in args.tools
     ):
-        index_bwakit = downloadRef("bwakit", name="hs38DH")
-        index_bwakit = bwaIndex(index_bwakit)
-        samples_new = bwakitRun(samples, index_bwakit)
-        samples_new_1 = bwakitReadResult(samples_new)
-        renameResult(samples_new_1, samples)
-        samples_new = addSuffix(samples_new, ".aln")
-        samples_hs38dh = bamSort(samples_new)
+        index_bwa = downloadRef(folder_bwa, name="hs38DH")
+        index_bwa = bwaIndex(index_bwa)
+        samples = bwakitRun(samples_fq, index_bwa)
+        samples_new = bwakitReadResult(samples)
+        samples_new = renameResult(samples_new, samples_fq)
+        samples = addSuffix(samples, ".aln")
+        samples_hs38dh = bamSort(samples)
 
-    # bwakit -> kourami
-    if "kourami" in args.tools:
-        folder_kourami = kouramiDownload("kourami")
-        folder_kourami = kouramiBuildImage(folder_kourami)
-        index_kourami = kouramiBuild(folder_kourami, db_hla)
-        samples_new = kouramiPreprocess(samples_hs38dh, index_kourami, folder_kourami)
-        samples_new = kouramiRun(samples_new, index_kourami, folder_kourami)
-        samples_new = kouramiReadResult(samples_new)
-        renameResult(samples_new, samples)
+    if "arcashla" in args.tools:
+        db_hla_for_arcas = db_hla
+        if version == "origin":
+            db_hla_for_arcas = downloadHLA("", version="3.24.0")
+        folder = createFolder("", "arcas")
+        index = arcasBuild(folder, db_hla_for_arcas)
+        # I found the decoy in hs38DH wll not be extracted
+        samples = arcasPreprocess(samples_hs38dh)
+        # samples = samples_fq  # directly mapped
+        samples = arcasRun(samples, index)
+        samples = arcasReadResult(samples)
+        samples = renameResult(samples, samples_fq)
 
-    # bwakit -> hlala
     if "hlala" in args.tools:
-        index_hlala = hlalaDownload("hlala")
-        samples_new = addUnmap(samples_hs38dh)
-        samples_new = hlalaRun(samples_new, index_hlala)
-        samples_new = hlalaReadResult(samples_new)
-        renameResult(samples_new, samples)
+        folder = createFolder("", "hlala")
+        index = hlalaBuild(folder)
+        samples = addUnmap(samples_hs38dh)
+        samples = hlalaRun(samples, index)
+        samples = hlalaReadResult(samples)
+        samples = renameResult(samples, samples_fq)
 
-    # bwakit -> hlascan
     if "hlascan" in args.tools:
-        index_hlascan = hlascanDownload("hlascan")
-        samples_new = hlascanPreRun(samples, index_hlascan)
-        samples_new = globAndRun(hlascanRun, samples_new)
-        samples_new = hlascanReadResult(samples_new)
-        renameResult(samples_new, samples)
-        samples_new = hlascanPreRun(samples_hs38dh, index_hlascan)
-        samples_new = globAndRun(hlascanRun, samples_new)
-        samples_new = hlascanReadResult(samples_new)
-        renameResult(samples_new, samples)
+        folder = createFolder("", "hlascan")
+        folder = checkAndBuildImage(folder)
+        index = hlascanBuild(folder)
+        # directly mapped on HLA from fastq
+        # samples = hlascanPreRun(samples_fq, index)
+        # samples = globAndRun(hlascanRun, samples)
+        # samples = hlascanReadResult(samples)
+        # samples = renameResult(samples, samples_fq)
+        samples = hlascanPreRun(samples_hs38dh, index)
+        samples = globAndRun(hlascanRun, samples)
+        samples = hlascanReadResult(samples)
+        samples = renameResult(samples, samples_fq)
 
+    if "kourami" in args.tools:
+        folder = createFolder("", "kourami")
+        folder = kouramiDownload(folder)
+        folder = checkAndBuildImage(folder, "kourami_preprocess")
+        index = kouramiBuild(folder, db_hla)
+        samples = kouramiPreprocess(samples_hs38dh, index, folder)
+        samples = kouramiRun(samples, index, folder)
+        samples = kouramiReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
+    # fastq
     if "hisat" in args.tools:
         # maximum version 3.43.0
         db_hla_for_hisat = db_hla
         if version != "origin" and tuple(map(int, version.split("."))) > (3, 43, 0):
             db_hla_for_hisat = downloadHLA("", version="3.43.0")
-        folder_hisat = hisatDownload("hisat")
-        folder_hisat = hisatBuildImage(folder_hisat)
-        index_hisat = hisatBuild(folder_hisat, db_hla_for_hisat)
-        samples_new = hisatRun(samples, index_hisat)
-        samples_new = hisatReadResult(samples_new)
-        renameResult(samples_new, samples)
-
-    if "vbseq" in args.tools:
-        folder_vbseq = vbseqDownload("vbseq")
-        folder_vbseq = vbseqBuildImage(folder_vbseq)
-        index_vbseq = vbseqBuild(folder_vbseq, db_hla)
-        samples_new = vbseqPreprocess(samples_hs37)
-        # samples_new = samples  # directly mapped on HLA
-        samples_new = vbseqRun(samples_new, index_vbseq)
-        samples_new = vbseqReadResult(samples_new)
-        renameResult(samples_new, samples)
-
-    # hs38 -> xhla
-    if "xhla" in args.tools:
-        folder_xhla = xhlaDownload("xhla")
-        folder_xhla = xhlaBuildImage(folder_xhla)
-        index_xhla = xhlaBuild(folder_xhla, db_hla)
-        samples_new = xhlaRun(samples_hs38, index_xhla)
-        samples_new = xhlaReadResult(samples_new)
-        renameResult(samples_new, samples)
-
-    if "graphtyper" in args.tools:
-        folder_graphtyper = graphtyperDownload("graphtyper")
-        folder_graphtyper = graphtyperBuildImage(folder_graphtyper)
-        index_graphtyper = graphtyperBuild(folder_graphtyper, db_hla, index_hs38)
-        samples_new = graphtyperPreRun(samples_hs38, index_graphtyper)
-        samples_new = globAndRun(graphtyperRun, samples_new)
-        samples_new = graphtyperReadResult(samples_new)
-        renameResult(samples_new, samples)
-
-    if "optitype" in args.tools:
-        index_optitype = optitypeDownload("optitype")
-        samples_new = optitypeRun(samples, index_optitype)
-        samples_new = optitypeReadResult(samples_new)
-        renameResult(samples_new, samples)
-
-    if "arcashla" in args.tools:
-        folder_arcas = arcasDownload("arcas")
-        db_hla_for_arcas = db_hla
-        if version == "origin":
-            db_hla_for_arcas = downloadHLA("", version="3.24.0")
-        index_arcas = arcasBuild(folder_arcas, db_hla_for_arcas)
-        # I found the decoy in hs38DH wll not be extracted
-        samples_new = arcasPreprocess(samples_hs38dh)
-        # samples_new = samples  # directly mapped
-        samples_new = arcasRun(samples_new, index_arcas)
-        samples_new = arcasReadResult(samples_new)
-        renameResult(samples_new, samples)
-
-    if "polysolver" in args.tools:
-        samples_new = polysolverRun(samples_hs37, "")
-        samples_new = polysolverReadResult(samples_new)
-        renameResult(samples_new, samples)
-
-    if "soaphla" in args.tools:
-        folder_soaphla = soaphlaDownload("soaphla")
-        folder_soaphla = soaphlaBuildImage(folder_soaphla)
-        index_soaphla = soaphlaBuild(folder_soaphla, "")
-        samples_new = soaphlaRun(samples_hs37, index_soaphla)
-        samples_new = soaphlaReadResult(samples_new)
-        renameResult(samples_new, samples)
-
-    if "hlaminer" in args.tools:
-        folder_hlaminer = hlaminerDownload("hlaminer")
-        folder_hlaminer = hlaminerBuildImage(folder_hlaminer)
-        index_hlaminer = hlaminerBuild(folder_hlaminer, db_hla)
-        # Yes, directly mapped on HLA sequences without any filtering
-        samples_new = hlaminerRun(samples, index_hlaminer)
-        samples_new = hlaminerReadResult(samples_new)
-
-    if "seq2hla" in args.tools:
-        samples_new = seq2hlaRun(samples, "")
-        samples_new = seq2hlaReadResult(samples_new)
-        renameResult(samples_new, samples)
+        folder = createFolder("", "hisat")
+        folder = hisatDownload(folder)
+        folder = checkAndBuildImage(folder)
+        index = hisatBuild(folder, db_hla_for_hisat)
+        samples = hisatRun(samples_fq, index)
+        samples = hisatReadResult(samples)
+        samples = renameResult(samples, samples_fq)
 
     if "hlahd" in args.tools:
-        folder_hlahd = hlahdDownload("hlahd")
-        folder_hlahd = hlahdBuildImage(folder_hlahd)
-        index_hlahd = hlahdBuild(folder_hlahd, db_hla)
-        samples_new = hlahdRun(samples, index_hlahd)
-        samples_new = hlahdReadResult(samples_new)
-        renameResult(samples_new, samples)
+        folder = createFolder("", "hlahd")
+        folder = hlahdDownload(folder)
+        folder = checkAndBuildImage(folder)
+        index = hlahdBuild(folder, db_hla)
+        samples = hlahdRun(samples_fq, index)
+        samples = hlahdReadResult(samples)
+        samples = renameResult(samples, samples_fq)
 
-    mergeResult(samples + ".hla_result.{}")
+    if "hlaminer" in args.tools:
+        folder = createFolder("", "hlaminer")
+        folder = checkAndBuildImage(folder)
+        index = hlaminerBuild(folder, db_hla)
+        # Yes, directly mapped on HLA sequences without any filtering
+        samples = hlaminerRun(samples_fq, index)
+        samples = hlaminerReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
+    if "optitype" in args.tools:
+        folder = createFolder("", "optitype")
+        index = optitypeBuild(folder)
+        samples = optitypeRun(samples_fq, index)
+        samples = optitypeReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
+    if "seq2hla" in args.tools:
+        folder = createFolder("", "seq2hla")
+        folder = checkAndBuildImage(folder)
+        index = seq2hlaBuild(folder, db_hla)
+        samples = seq2hlaRun(samples_fq, index)
+        samples = seq2hlaReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
+    mergeResult(samples_fq + ".hla_result.{}")
