@@ -59,6 +59,8 @@ images = {
     "soaphla": "localhost/linnil1/soaphla:1.0.0-pl526_3",
     "vbseq": "localhost/linnil1/vbseq:20181122",
     "xhla": "localhost/linnil1/xhla",
+    "phlat_download": "docker.io/mgibio/phlat:1.1_withindex",
+    "phlat": "docker.io/mgibio/phlat:1.1",
 }
 
 folders = {
@@ -72,6 +74,7 @@ folders = {
     "hlascan": "hlascan",
     "kourami": "kourami",
     "optitype": "optitype",
+    "phlat": "phlat",
     "seq2hla": "seq2hla",
     "soaphla": "soaphla",
     "vbseq": "vbseq",
@@ -1625,6 +1628,53 @@ def hlahdReadResult(input_name: str) -> str:
     return output_name
 
 
+def phlatBuild(folder: str, db_hla: str = "origin") -> str:
+    """Their website is gone. So download from docker"""
+    output_name = f"{folder}/hla_3080"  # described in paper (2014)
+    if Path(output_name).exists():
+        return output_name
+    # resources/preload1.pk is also a index file, but whatever.
+    runDocker("phlat_download", f"cp -r /usr/bin/phlat-release/b2folder/ {output_name}")
+    return output_name
+
+
+def phlatRun(input_name: str, index: str, index_bam: str) -> str:
+    """Input hs38DH and using run.b38.sh instead of directly call PHLAT.py"""
+    output_name = input_name + ".phlat_" + name2Single(index)
+    if Path(output_name + "/data_HLA.sum").exists():
+        return output_name
+    runShell(f"mkdir -p {output_name}/data")
+    runDocker(
+        "phlat",
+        f"bash /usr/bin/run.b38.sh --data-dir {output_name} --rs-dir {output_name} "
+        f" --ref-fasta {index_bam} --bam {input_name}.bam --tag data --index-dir {index} ",
+    )
+    return output_name
+
+
+def phlatReadResult(input_name: str) -> str:
+    """
+    Read phlat result into our hla_result format
+
+    Its format:
+    ```
+    Locus   Allele1 Allele2 LLtot   pval1   pval2
+    HLA_B   B*07:02:01      B*82:02 -2356.54        1.6e-04 3.9e-04
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+    df = pd.read_csv(f"{input_name}/data_HLA.sum", sep="\t")
+    # print(txt)
+    alleles = list([*df["Allele1"], *df["Allele2"]])
+    alleles = [i.replace("HLA-", "") for i in alleles if i != "Not typed" and i != "-"]
+    df1 = allelesToTable(alleles, default_gene=["A", "B", "C"])
+    df1["name"] = input_name
+    df1.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
 def renameResult(input_name: str, sample_name: str) -> str:
     """rename xx.*.hla_result.csv into xx.hla_result.{method}.csv"""
     suffix = input_name.split(sample_name)[1]
@@ -1687,6 +1737,7 @@ def readArgument() -> argparse.Namespace:
             "hlascan",
             "kourami",
             "optitype",
+            # "phlat",  # require download requests
             "polysolver",
             "seq2hla",
             "soaphla",
@@ -1771,6 +1822,7 @@ if __name__ == "__main__":
     if (
         "bwakit" in args.tools
         or "arcashla" in args.tools
+        or "phlat" in args.tools
         or "hlala" in args.tools
         or "hlascan" in args.tools
         or "kourami" in args.tools
@@ -1828,6 +1880,13 @@ if __name__ == "__main__":
         samples = kouramiReadResult(samples)
         samples = renameResult(samples, samples_fq)
 
+    if "phlat" in args.tools:
+        folder = createFolder("", "phlat")
+        index = phlatBuild(folder, db_hla)
+        samples = phlatRun(samples_hs38dh, index, index_bwa)
+        samples = phlatReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
     # fastq
     if "hisat" in args.tools:
         # maximum version 3.43.0
@@ -1842,11 +1901,16 @@ if __name__ == "__main__":
         samples = hisatReadResult(samples)
         samples = renameResult(samples, samples_fq)
 
+    # Below tools mapped all the reads on HLA sequences
+    # without any filtering (e.g. remove unrelated read)
+    # it may cause some problems
     if "hlahd" in args.tools:
         folder = createFolder("", "hlahd")
         folder = hlahdDownload(folder)
         folder = checkAndBuildImage(folder)
+        # require about 40G
         index = hlahdBuild(folder, db_hla)
+        # require about 40G
         samples = hlahdRun(samples_fq, index)
         samples = hlahdReadResult(samples)
         samples = renameResult(samples, samples_fq)
@@ -1855,7 +1919,6 @@ if __name__ == "__main__":
         folder = createFolder("", "hlaminer")
         folder = checkAndBuildImage(folder)
         index = hlaminerBuild(folder, db_hla)
-        # Yes, directly mapped on HLA sequences without any filtering
         samples = hlaminerRun(samples_fq, index)
         samples = hlaminerReadResult(samples)
         samples = renameResult(samples, samples_fq)

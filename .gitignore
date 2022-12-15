@@ -11,17 +11,19 @@ HLAminer_HPRA_/
 __pycache__
 
 # index
+arcas/
 bwakit/
+graphtyper/
 hisat/
 hla_3*
+hlahd/
 hlala/
+hlaminer/
 hlascan/
 kourami/
+optitype/
+phlat/
+seq2hla/
+soaphla/
 vbseq/
 xhla/
-graphtyper/
-optitype/
-arcas/
-soaphla/
-hlaminer/
-hlahd/

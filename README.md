@@ -9,18 +9,20 @@ Tools includes
 * graphtyper=2.7.5 (https://github.com/DecodeGenetics/graphtyper)
 * OptiType=1.3.5 (RNA, https://github.com/FRED-2/OptiType)
 * HISAT-genotype=1.3.3 (https://daehwankimlab.github.io/hisat-genotype/)
-* HLA-HD=1.5.0 (manually download, https://www.genome.med.kyoto-u.ac.jp/HLA-HD)
+* HLA-HD=1.5.0 (download request, https://www.genome.med.kyoto-u.ac.jp/HLA-HD)
 * HLA-LA=1.0.3 (https://github.com/DiltheyLab/HLA-LA)
 * HLAminer=1.4 (https://github.com/bcgsc/HLAminer)
 * HLAscan=2.1.4 (https://github.com/SyntekabioTools/HLAscan)
 * Kourami=0.9.6 (https://github.com/Kingsford-Group/kourami)
 * POLYSOLVER=v4 (https://software.broadinstitute.org/cancer/cga/polysolver)
+* PHLAT=1.1 (https://sites.google.com/site/phlatfortype)
 * seq2HLA=2.2--2 (RNA, https://github.com/TRON-Bioinformatics/seq2HLA)
-* soap-HLA=1.0.0 (https://github.com/adefelicibus/soap-hla)
+* SOAP-HLA=1.0.0 (https://github.com/adefelicibus/soap-hla)
 * HLA-VBSeq=11/22/2018 (https://nagasakilab.csml.org/hla/)
 * xHLA=34221ea (https://github.com/humanlongevity/HLA)
 
 Some tools are able to update the index to the latest IMGT-HLA version
+(https://www.ebi.ac.uk/ipd/imgt/hla/)
 
 * arcasHLA (Default 3.24.0 -> Current 3.49.0)
 * bwakit (Cannot change)
@@ -33,8 +35,9 @@ Some tools are able to update the index to the latest IMGT-HLA version
 * HLAscan (Unknwon, cannot change, not open-source)
 * Kourami (Provided 3.24.0 -> Current 3.49.0)
 * POLYSOLVER (Provided 3.10.0, cannot change)
+* PHLAT (Provided 3.9.0, cannot change)
 * seq2HLA (Unknwon, cannot change)
-* soap-HLA (Provided 3.9.0, cannot change)
+* SOAP-HLA (Provided 3.9.0, cannot change)
 * HLA-VBSeq (Provided 3.31.0 -> Current 3.49.0)
 * xHLA=34221ea (Unknwon -> Current 3.49.0)
 
@@ -189,11 +192,12 @@ filtering, thresholding on tool provided parameters (e.g. abundance).
 Some HLA tools are not considered as TODO:
 * HLA-PRG (The precessor of HLA-LA)
 * SNP2HLA (SNP array data as input)
+* HIBAG (SNP array)
 
 
-These tools require manully download requests:
-* HLA-HD  (copy hlahd/hlahd.1.5.0.tar.gz)
-* PHLAT
+These tools require manully fills the download requests:
+* HLA-HD (After accepted, copy to `hlahd/hlahd.1.5.0.tar.gz`)
+* PHLAT (TODO, https://sites.google.com/site/projectphlat/Downloads)
 * PolyPheMe
 
 
@@ -206,21 +210,24 @@ TODO:
 
 
 ## Reference
-* Rose Orenbuch, Ioan Filip, Devon Comito, Jeffrey Shaman, Itsik Pe’er, Raul Rabadan, arcasHLA: high-resolution HLA typing from RNAseq, Bioinformatics, Volume 36, Issue 1, 1 January 2020, Pages 33–40, https://doi.org/10.1093/bioinformatics/btz474
-* Li, Heng. "Aligning sequence reads, clone sequences and assembly contigs with BWA-MEM." arXiv preprint arXiv:1303.3997 (2013).
-* Hannes P. Eggertsson, Hakon Jonsson, Snaedis Kristmundsdottir, Eirikur Hjartarson, Birte Kehr, Gisli Masson, Florian Zink, Kristjan E. Hjorleifsson, Aslaug Jonasdottir, Adalbjorg Jonasdottir, Ingileif Jonsdottir, Daniel F. Gudbjartsson, Pall Melsted, Kari Stefansson, Bjarni V. Halldorsson. Graphtyper enables population-scale genotyping using pangenome graphs. Nature Genetics 49, 1654–1660 (2017). doi:10.1038/ng.3964
-* Kim, D., Paggi, J.M., Park, C. et al. Graph-based genome alignment and genotyping with HISAT2 and HISAT-genotype. Nat Biotechnol 37, 907–915 (2019). https://doi.org/10.1038/s41587-019-0201-4
-* András Szolek, Benjamin Schubert, Christopher Mohr, Marc Sturm, Magdalena Feldhahn, Oliver Kohlbacher, OptiType: precision HLA typing from next-generation sequencing data, Bioinformatics, Volume 30, Issue 23, 1 December 2014, Pages 3310–3316, https://doi.org/10.1093/bioinformatics/btu548
-* Kawaguchi, S., Higasa, K., Shimizu, M., Yamada, R., & Matsuda, F. (2017). HLA-HD: An accurate HLA typing algorithm for next-generation sequencing data. Human mutation, 38(7), 788–797. https://doi.org/10.1002/humu.23230
-* Alexander T Dilthey, Alexander J Mentzer, Raphael Carapito, Clare Cutland, Nezih Cereb, Shabir A Madhi, Arang Rhie, Sergey Koren, Seiamak Bahram, Gil McVean, Adam M Phillippy, HLA\*LA—HLA typing from linearly projected graph alignments, Bioinformatics, Volume 35, Issue 21, 1 November 2019, Pages 4394–4396, https://doi.org/10.1093/bioinformatics/btz235
-* Warren, R.L., Choe, G., Freeman, D.J. et al. Derivation of HLA types from shotgun sequence datasets. Genome Med 4, 95 (2012). https://doi.org/10.1186/gm396
-* Ka, S., Lee, S., Hong, J. et al. HLAscan: genotyping of the HLA region using next-generation sequencing data. BMC Bioinformatics 18, 258 (2017). https://doi.org/10.1186/s12859-017-1671-3
-* Lee, H., Kingsford, C. Kourami: graph-guided assembly for novel human leukocyte antigen allele discovery. Genome Biol 19, 16 (2018). https://doi.org/10.1186/s13059-018-1388-2
-* Shukla, S., Rooney, M., Rajasagi, M. et al. Comprehensive analysis of cancer-associated somatic mutations in class I HLA genes. Nat Biotechnol 33, 1152–1158 (2015). https://doi.org/10.1038/nbt.3344
-* Boegel, S., Löwer, M., Schäfer, M. et al. HLA typing from RNA-Seq sequence reads. Genome Med 4, 102 (2013). https://doi.org/10.1186/gm403
-* Cao H, Wu J, Wang Y, Jiang H, Zhang T, et al. (2013) An Integrated Tool to Study MHC Region: Accurate SNV Detection and HLA Genes Typing in Human MHC Region Using Targeted High-Throughput Sequencing. PLOS ONE 8(7): e69388. https://doi.org/10.1371/journal.pone.0069388`
-* Nariai, N., Kojima, K., Saito, S. et al. HLA-VBSeq: accurate HLA typing at full resolution from whole-genome sequencing data. BMC Genomics 16 (Suppl 2), S7 (2015). https://doi.org/10.1186/1471-2164-16-S2-S7
-* Xie, Chao, et al. "Fast and accurate HLA typing from short-read next-generation sequence data with xHLA." Proceedings of the National Academy of Sciences 114.30 (2017): 8059-8064.
+* **arcasHLA** Rose Orenbuch, Ioan Filip, Devon Comito, Jeffrey Shaman, Itsik Pe’er, Raul Rabadan, arcasHLA: high-resolution HLA typing from RNAseq, Bioinformatics, Volume 36, Issue 1, 1 January 2020, Pages 33–40, https://doi.org/10.1093/bioinformatics/btz474
+* **bwa** **bwakit** Li, Heng. "Aligning sequence reads, clone sequences and assembly contigs with BWA-MEM." arXiv preprint arXiv:1303.3997 (2013).
+* **Graphtyper** Hannes P. Eggertsson, Hakon Jonsson, Snaedis Kristmundsdottir, Eirikur Hjartarson, Birte Kehr, Gisli Masson, Florian Zink, Kristjan E. Hjorleifsson, Aslaug Jonasdottir, Adalbjorg Jonasdottir, Ingileif Jonsdottir, Daniel F. Gudbjartsson, Pall Melsted, Kari Stefansson, Bjarni V. Halldorsson. Graphtyper enables population-scale genotyping using pangenome graphs. Nature Genetics 49, 1654–1660 (2017). doi:10.1038/ng.3964
+* **hisat** **hisat-genotype** Kim, D., Paggi, J.M., Park, C. et al. Graph-based genome alignment and genotyping with HISAT2 and HISAT-genotype. Nat Biotechnol 37, 907–915 (2019). https://doi.org/10.1038/s41587-019-0201-4
+* **HLA-HD** Kawaguchi, S., Higasa, K., Shimizu, M., Yamada, R., & Matsuda, F. (2017). HLA-HD: An accurate HLA typing algorithm for next-generation sequencing data. Human mutation, 38(7), 788–797. https://doi.org/10.1002/humu.23230
+* **HLA-LA** Alexander T Dilthey, Alexander J Mentzer, Raphael Carapito, Clare Cutland, Nezih Cereb, Shabir A Madhi, Arang Rhie, Sergey Koren, Seiamak Bahram, Gil McVean, Adam M Phillippy, HLA\*LA—HLA typing from linearly projected graph alignments, Bioinformatics, Volume 35, Issue 21, 1 November 2019, Pages 4394–4396, https://doi.org/10.1093/bioinformatics/btz235
+* **HLAminer** Warren, R.L., Choe, G., Freeman, D.J. et al. Derivation of HLA types from shotgun sequence datasets. Genome Med 4, 95 (2012). https://doi.org/10.1186/gm396
+* **HLAscan** Ka, S., Lee, S., Hong, J. et al. HLAscan: genotyping of the HLA region using next-generation sequencing data. BMC Bioinformatics 18, 258 (2017). https://doi.org/10.1186/s12859-017-1671-3
+* **HLA-VBSeq** Nariai, N., Kojima, K., Saito, S. et al. HLA-VBSeq: accurate HLA typing at full resolution from whole-genome sequencing data. BMC Genomics 16 (Suppl 2), S7 (2015). https://doi.org/10.1186/1471-2164-16-S2-S7
+* **Kourami** Lee, H., Kingsford, C. Kourami: graph-guided assembly for novel human leukocyte antigen allele discovery. Genome Biol 19, 16 (2018). https://doi.org/10.1186/s13059-018-1388-2
+* **OptiType** András Szolek, Benjamin Schubert, Christopher Mohr, Marc Sturm, Magdalena Feldhahn, Oliver Kohlbacher, OptiType: precision HLA typing from next-generation sequencing data, Bioinformatics, Volume 30, Issue 23, 1 December 2014, Pages 3310–3316, https://doi.org/10.1093/bioinformatics/btu548
+* **PHLAT** Bai, Y., Wang, D., Fury, W. (2018). PHLAT: Inference of High-Resolution HLA Types from RNA and Whole Exome Sequencing. In: Boegel, S. (eds) HLA Typing. Methods in Molecular Biology, vol 1802. Humana Press, New York, NY. https://doi.org/10.1007/978-1-4939-8546-3_13
+* **POLYSOLVER** Shukla, S., Rooney, M., Rajasagi, M. et al. Comprehensive analysis of cancer-associated somatic mutations in class I HLA genes. Nat Biotechnol 33, 1152–1158 (2015). https://doi.org/10.1038/nbt.3344
+* **seq2HLA** Boegel, S., Löwer, M., Schäfer, M. et al. HLA typing from RNA-Seq sequence reads. Genome Med 4, 102 (2013). https://doi.org/10.1186/gm403
+* **SOAP-HLA** Cao H, Wu J, Wang Y, Jiang H, Zhang T, et al. (2013) An Integrated Tool to Study MHC Region: Accurate SNV Detection and HLA Genes Typing in Human MHC Region Using Targeted High-Throughput Sequencing. PLOS ONE 8(7): e69388. https://doi.org/10.1371/journal.pone.0069388`
+* **xHLA** Xie, Chao, et al. "Fast and accurate HLA typing from short-read next-generation sequence data with xHLA." Proceedings of the National Academy of Sciences 114.30 (2017): 8059-8064.
+
+* **IMGT** James Robinson, Dominic J Barker, Xenia Georgiou, Michael A Cooper, Paul Flicek, Steven G E Marsh, IPD-IMGT/HLA Database, Nucleic Acids Research, Volume 48, Issue D1, 08 January 2020, Pages D948–D955, https://doi.org/10.1093/nar/gkz950
 
 
 ## LICENSE
