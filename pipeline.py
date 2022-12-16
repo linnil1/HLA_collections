@@ -61,6 +61,7 @@ images = {
     "xhla": "localhost/linnil1/xhla",
     "phlat_download": "docker.io/mgibio/phlat:1.1_withindex",
     "phlat": "docker.io/mgibio/phlat:1.1",
+    "hlaforest": "localhost/linnil1/hlaforest",
 }
 
 folders = {
@@ -68,6 +69,7 @@ folders = {
     "bwakit": "bwakit",
     "graphtyper": "graphtyper",
     "hisat": "hisat",
+    "hlaforest": "hlaforest",
     "hlahd": "hlahd",
     "hlala": "hlala",
     "hlaminer": "hlaminer",
@@ -1675,6 +1677,109 @@ def phlatReadResult(input_name: str) -> str:
     return output_name
 
 
+def hlaforestBuild(folder: str, db_hla: str = "origin") -> str:
+    """https://github.com/FNaveed786/hlaforest"""
+    if db_hla == "origin":
+        output_name = f"{folder}/hla_3100"  # described in paper
+    else:
+        output_name = f"{folder}/{Path(db_hla).name}"
+    if Path(output_name + "/config.sh").exists():
+        return output_name
+
+    if not Path(f"{folder}/hlaforest").exists():
+        runShell(
+            f"git clone https://github.com/FNaveed786/hlaforest.git {folder}/hlaforest"
+        )
+        runShell(f"cd {folder}/hlaforest && git checkout 75edb46")
+
+    if db_hla == "origin":
+        runShell(f"mv {folder}/hlaforest/reference {output_name}")
+    else:
+        # Find the building step by comparing it's nospace and filtered fasta
+        runShell(f"mkdir -p {output_name}")
+        with (
+            open(f"{db_hla}/hla_nuc.fasta") as f_in,
+            open(f"{output_name}/hla_nuc_nospace_filtered.fasta", "w") as f_out,
+        ):
+            skip = False
+            for line in f_in:
+                if line.startswith(">"):
+                    if line.split(" ")[1].endswith("N"):
+                        skip = True
+                    else:
+                        skip = False
+                        f_out.write("_".join(line.split(" ")))
+                elif not skip:
+                    f_out.write(line)
+        runDocker(
+            "hlaforest",
+            f"bowtie-build {output_name}/hla_nuc_nospace_filtered.fasta "
+            f"             {output_name}/hla_nuc_nospace_filtered",
+        )
+    with (
+        open(f"{folder}/hlaforest/scripts/config.sh") as f_in,
+        open(f"{output_name}/config.sh", "w") as f_out,
+    ):
+        for i in f_in.readlines():
+            if i.startswith("SCRIPT_PATH"):
+                f_out.write("SCRIPT_PATH=/usr/local/bin\n")
+            elif i.startswith("BOWTIE_INDEX"):
+                f_out.write(
+                    f"BOWTIE_INDEX=/app/{output_name}/hla_nuc_nospace_filtered\n"
+                )
+            elif i.startswith("NUM_THREADS"):
+                f_out.write("NUM_THREADS=$NUM_THREADS\n")
+            else:
+                f_out.write(i)
+    return output_name
+
+
+def hlaforestRun(input_name: str, index: str) -> str:
+    """https://github.com/FNaveed786/hlaforest"""
+    output_name = input_name + ".hlaforest_" + name2Single(index)
+    if Path(output_name + "/haplotypes.txt").exists():
+        return output_name
+    runDocker(
+        "hlaforest",
+        f"CallHaplotypesPE.sh {output_name} {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz",
+        opts=(
+            f" -v {Path(index).absolute()}/config.sh:/root/hla/hlaforest/scripts/config.sh:ro "
+            f" -e NUM_THREADS={getThreads()} "
+        ),
+    )
+    return output_name
+
+
+def hlaforestReadResult(input_name: str) -> str:
+    # TODO
+    """
+    Read hlaforest haplotype result into our hla_result format
+
+    Its format:
+    ```
+    ROOT:A  ROOT:A:01       ROOT:A:01:03
+    ROOT:A  ROOT:A:11       ROOT:A:11:01    ROOT:A:11:01:18
+    ROOT:B  ROOT:B:08       ROOT:B:08:20
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+    alleles = []
+    with open(f"{input_name}/haplotypes.txt") as f:
+        for i in f:
+            alleles.append(i.split("\t")[-1])
+    alleles = [
+        i.replace("ROOT:", "").replace(":", "*", 1).strip()
+        for i in alleles
+        if i.strip()
+    ]
+    df = allelesToTable(alleles, default_gene=["A", "B", "C"])
+    df["name"] = input_name
+    df.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
 def renameResult(input_name: str, sample_name: str) -> str:
     """rename xx.*.hla_result.csv into xx.hla_result.{method}.csv"""
     suffix = input_name.split(sample_name)[1]
@@ -1727,11 +1832,12 @@ def readArgument() -> argparse.Namespace:
     parser.add_argument(
         "--tools",
         default=[
-            # "arcashla",  # easy to fail
+            # "arcashla",  # for RNA, easy to fail
             "bwakit",
             "graphtyper",
             "hisat",
-            # 'hlahd', # require download requests, disable as default
+            # 'hlaforest',  # for RNA, easy to fail
+            # 'hlahd',  # require download requests, disable as default
             "hlala",
             "hlaminer",
             "hlascan",
@@ -1937,5 +2043,13 @@ if __name__ == "__main__":
         samples = seq2hlaRun(samples_fq, index)
         samples = seq2hlaReadResult(samples)
         samples = renameResult(samples, samples_fq)
+
+    if "hlaforest" in args.tools:
+        folder = createFolder("", "hlaforest")
+        folder = checkAndBuildImage(folder)
+        index = hlaforestBuild(folder, db_hla)
+        samples = hlaforestRun(samples_fq, index)
+        samples = hlaforestReadResult(samples)
+        # samples = renameResult(samples, samples_fq)
 
     mergeResult(samples_fq + ".hla_result.{}")
