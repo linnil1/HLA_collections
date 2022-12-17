@@ -13,6 +13,7 @@ Tools includes
 * HLA-HD=1.5.0 (download request, https://www.genome.med.kyoto-u.ac.jp/HLA-HD)
 * HLA-LA=1.0.3 (https://github.com/DiltheyLab/HLA-LA)
 * HLAminer=1.4 (https://github.com/bcgsc/HLAminer)
+* HLAProfiler=1.0.5 (RNA, https://github.com/ExpressionAnalysis/HLAProfiler)
 * HLAscan=2.1.4 (https://github.com/SyntekabioTools/HLAscan)
 * Kourami=0.9.6 (https://github.com/Kingsford-Group/kourami)
 * POLYSOLVER=v4 (https://software.broadinstitute.org/cancer/cga/polysolver)
@@ -34,6 +35,7 @@ Some tools are able to update the index to the latest IMGT-HLA version
 * HLA-HD (Default 3.32.0 -> Current 3.49.0)
 * HLA-LA (Unknwon, cannot change)
 * HLAminer (Provided 3.33.0 -> Current 3.49.0)
+* HLAProfiler (Provided 3.24.0, maybe can change but require more time to try)
 * HLAscan (Unknwon, cannot change, not open-source)
 * Kourami (Provided 3.24.0 -> Current 3.49.0)
 * POLYSOLVER (Provided 3.10.0, cannot change)
@@ -195,6 +197,7 @@ Some HLA tools are not considered as TODO:
 * HLA-PRG (The precessor of HLA-LA)
 * SNP2HLA (SNP array data as input)
 * HIBAG (SNP array)
+* HLAreporter (VERY BAD CODE, I don't have enough enthusiasm to fix them. https://github.com/jiaolongsun/hlareporter)
 
 
 These tools require manully fills the download requests:
@@ -205,9 +208,7 @@ These tools require manully fills the download requests:
 
 TODO:
 * HLAssign (https://www.ikmb.uni-kiel.de/resources/download-tools/software/hlassign)
-* HLAProfiler (https://github.com/ExpressionAnalysis/HLAProfiler)
 * ATHLATES (https://github.com/cliu32/athlates)
-* HLAreporter (https://github.com/jiaolongsun/hlareporter)
 
 
 ## Reference
@@ -219,6 +220,7 @@ TODO:
 * **HLA-HD** Kawaguchi, S., Higasa, K., Shimizu, M., Yamada, R., & Matsuda, F. (2017). HLA-HD: An accurate HLA typing algorithm for next-generation sequencing data. Human mutation, 38(7), 788–797. https://doi.org/10.1002/humu.23230
 * **HLA-LA** Alexander T Dilthey, Alexander J Mentzer, Raphael Carapito, Clare Cutland, Nezih Cereb, Shabir A Madhi, Arang Rhie, Sergey Koren, Seiamak Bahram, Gil McVean, Adam M Phillippy, HLA\*LA—HLA typing from linearly projected graph alignments, Bioinformatics, Volume 35, Issue 21, 1 November 2019, Pages 4394–4396, https://doi.org/10.1093/bioinformatics/btz235
 * **HLAminer** Warren, R.L., Choe, G., Freeman, D.J. et al. Derivation of HLA types from shotgun sequence datasets. Genome Med 4, 95 (2012). https://doi.org/10.1186/gm396
+* **HLAProfiler** Buchkovich, M.L., Brown, C.C., Robasky, K. et al. HLAProfiler utilizes k-mer profiles to improve HLA calling accuracy for rare and common alleles in RNA-seq data. Genome Med 9, 86 (2017). https://doi.org/10.1186/s13073-017-0473-6
 * **HLAscan** Ka, S., Lee, S., Hong, J. et al. HLAscan: genotyping of the HLA region using next-generation sequencing data. BMC Bioinformatics 18, 258 (2017). https://doi.org/10.1186/s12859-017-1671-3
 * **HLA-VBSeq** Nariai, N., Kojima, K., Saito, S. et al. HLA-VBSeq: accurate HLA typing at full resolution from whole-genome sequencing data. BMC Genomics 16 (Suppl 2), S7 (2015). https://doi.org/10.1186/1471-2164-16-S2-S7
 * **Kourami** Lee, H., Kingsford, C. Kourami: graph-guided assembly for novel human leukocyte antigen allele discovery. Genome Biol 19, 16 (2018). https://doi.org/10.1186/s13059-018-1388-2

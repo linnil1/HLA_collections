@@ -48,9 +48,11 @@ images = {
     "graphtyper": "localhost/linnil1/graphtyper:2.7.5",
     "hisat": "localhost/linnil1/hisat2:1.3.3",
     "hisat2": "quay.io/biocontainers/hisat2:2.2.1--h87f3376_4",
+    "hlaforest": "localhost/linnil1/hlaforest",
     "hlahd": "localhost/linnil1/hlahd:1.5.0",
     "hlala": "quay.io/biocontainers/hla-la:1.0.3--hd03093a_0",
     "hlaminer": "localhost/linnil1/hlaminer:1.4",
+    "hlaprofiler": "quay.io/biocontainers/hlaprofiler:1.0.5--hdfd78af_3",
     "hlascan": "localhost/linnil1/hlascan:2.1.4",
     "kourami_preprocess": "localhost/linnil1/kourami_preprocess",
     "optitype": "quay.io/biocontainers/optitype:1.3.5--hdfd78af_2",
@@ -61,7 +63,6 @@ images = {
     "xhla": "localhost/linnil1/xhla",
     "phlat_download": "docker.io/mgibio/phlat:1.1_withindex",
     "phlat": "docker.io/mgibio/phlat:1.1",
-    "hlaforest": "localhost/linnil1/hlaforest",
 }
 
 folders = {
@@ -73,6 +74,7 @@ folders = {
     "hlahd": "hlahd",
     "hlala": "hlala",
     "hlaminer": "hlaminer",
+    "hlaprofiler": "hlaprofiler",
     "hlascan": "hlascan",
     "kourami": "kourami",
     "optitype": "optitype",
@@ -1751,7 +1753,6 @@ def hlaforestRun(input_name: str, index: str) -> str:
 
 
 def hlaforestReadResult(input_name: str) -> str:
-    # TODO
     """
     Read hlaforest haplotype result into our hla_result format
 
@@ -1777,6 +1778,75 @@ def hlaforestReadResult(input_name: str) -> str:
     df = allelesToTable(alleles, default_gene=["A", "B", "C"])
     df["name"] = input_name
     df.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
+def hlaprofilerBuild(folder: str, db_hla: str = "origin") -> str:
+    """https://expressionanalysis.github.io/HLAProfiler/"""
+    output_name = f"{folder}/hla_3240"  # described in paper
+    if Path(output_name).exists():
+        return output_name
+
+    runShell(
+        f"wget https://github.com/ExpressionAnalysis/HLAProfiler/archive/refs/tags/v1.0.0-db_only.tar.gz -P {folder}"
+    )
+    runShell(f"tar -vxf {folder}/v1.0.0-db_only.tar.gz -C {folder}")
+    runShell(f"mv {folder}/HLAProfiler-1.0.0-db_only/hla_database {output_name}")
+    runShell(
+        f"wget https://github.com/ExpressionAnalysis/HLAProfiler/releases/download/v1.0.0-db_only/database.idx -P {output_name}"
+    )
+    runShell(
+        f"wget https://github.com/ExpressionAnalysis/HLAProfiler/releases/download/v1.0.0-db_only/database.kdb -P {output_name}"
+    )
+    return output_name
+
+
+def hlaprofilerRun(input_name: str, index: str) -> str:
+    """https://github.com/ExpressionAnalysis/HLAProfiler"""
+    output_name = input_name + ".hlaprofiler_" + name2Single(index)
+    name = Path(input_name).name + ".read.1.fq.gz"
+    if Path(output_name + f"/{name}/{name}.HLATypes.txt").exists():
+        return output_name
+    runDocker(
+        "hlaprofiler",
+        f"HLAProfiler.pl predict -kp /usr/local/share/kraken-ea-0.10.5ea.3-3/ -intermediate_files"
+        f" -intermediate_files -threads {getThreads()}"
+        f" -database_name . -database_dir {index} -r {index}/data/reference/hla.ref.merged.fa"
+        f" -output_dir {output_name} -l {output_name}.log"
+        f" -fastq1 {input_name}.read.1.fq.gz "
+        f" -fastq2 {input_name}.read.2.fq.gz ",
+    )
+    return output_name
+
+
+def hlaprofilerReadResult(input_name: str) -> str:
+    """
+    Read hlaprofilerhaplotype result into our hla_result format
+
+    Its format:
+    ```
+    Allele1_Accession       Allele2_Accession       Allele1 Allele2 Proportion_reads...
+    HLA     HLA     A       A       -       -       -       -       -       -       Not enough reads to make call
+    HLA11935        HLA05253        B*82:02:02      B*07:02:20      0.292442325075655 ...
+    HLA02519        HLA11935        B*07:49N        B*82:02:02      0.267367979772837 ...
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+    name = Path(list(Path(input_name).iterdir())[0]).name
+    txt = pd.read_csv(f"{input_name}/{name}/{name}.HLATypes.txt", sep="\t")
+    txt = txt[txt["Final_score"] != "-"]
+    txt["Final_score"] = txt["Final_score"].astype(float)
+    txt["gene"] = txt["Allele1"].str.split("*", expand=True)[0]
+    df = (
+        txt.sort_values(["gene", "Final_score"], ascending=[True, False])
+        .groupby("gene")
+        .head(1)
+    )
+    df1 = allelesToTable([*df["Allele1"], *df["Allele2"]], default_gene=["A", "B", "C"])
+    df1["name"] = input_name
+    df1.to_csv(output_name + ".tsv", index=False, sep="\t")
     return output_name
 
 
@@ -1840,6 +1910,7 @@ def readArgument() -> argparse.Namespace:
             # 'hlahd',  # require download requests, disable as default
             "hlala",
             "hlaminer",
+            "hlaprofiler",
             "hlascan",
             "kourami",
             "optitype",
@@ -2010,6 +2081,14 @@ if __name__ == "__main__":
     # Below tools mapped all the reads on HLA sequences
     # without any filtering (e.g. remove unrelated read)
     # it may cause some problems
+    if "hlaforest" in args.tools:
+        folder = createFolder("", "hlaforest")
+        folder = checkAndBuildImage(folder)
+        index = hlaforestBuild(folder, db_hla)
+        samples = hlaforestRun(samples_fq, index)
+        samples = hlaforestReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
     if "hlahd" in args.tools:
         folder = createFolder("", "hlahd")
         folder = hlahdDownload(folder)
@@ -2029,6 +2108,13 @@ if __name__ == "__main__":
         samples = hlaminerReadResult(samples)
         samples = renameResult(samples, samples_fq)
 
+    if "hlaprofiler" in args.tools:
+        folder = createFolder("", "hlaprofiler")
+        index = hlaprofilerBuild(folder, db_hla)
+        samples = hlaprofilerRun(samples_fq, index)
+        samples = hlaprofilerReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
     if "optitype" in args.tools:
         folder = createFolder("", "optitype")
         index = optitypeBuild(folder)
@@ -2043,13 +2129,5 @@ if __name__ == "__main__":
         samples = seq2hlaRun(samples_fq, index)
         samples = seq2hlaReadResult(samples)
         samples = renameResult(samples, samples_fq)
-
-    if "hlaforest" in args.tools:
-        folder = createFolder("", "hlaforest")
-        folder = checkAndBuildImage(folder)
-        index = hlaforestBuild(folder, db_hla)
-        samples = hlaforestRun(samples_fq, index)
-        samples = hlaforestReadResult(samples)
-        # samples = renameResult(samples, samples_fq)
 
     mergeResult(samples_fq + ".hla_result.{}")
