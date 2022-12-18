@@ -44,6 +44,7 @@ images = {
     "samtools": "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
     # tools
     "arcas": "quay.io/biocontainers/arcas-hla:0.5.0--hdfd78af_1",
+    "athlates": "localhost/linnil1/athlates:2014_04_26",
     "bwakit": "quay.io/biocontainers/bwakit:0.7.17.dev1--hdfd78af_1",
     "graphtyper": "localhost/linnil1/graphtyper:2.7.5",
     "hisat": "localhost/linnil1/hisat2:1.3.3",
@@ -67,6 +68,7 @@ images = {
 
 folders = {
     "arcas": "arcas",
+    "athlates": "athlates",
     "bwakit": "bwakit",
     "graphtyper": "graphtyper",
     "hisat": "hisat",
@@ -1850,6 +1852,161 @@ def hlaprofilerReadResult(input_name: str) -> str:
     return output_name
 
 
+def athlatesDownload(folder: str) -> str:
+    """
+    Website (https://www.broadinstitute.org/viral-genomics/athlates)
+    has binary execute file, but require download submittion.
+    And script building and whole pipeline are written in
+    https://github.com/cliu32/athlates
+    """
+    if Path(f"{folder}/athlates").exists():
+        return folder
+
+    if not Path(f"{folder}/athlates.zip").exists():
+        raise ValueError(f"Please download to {folder}/athlates.zip")
+
+    runShell(f"unzip {folder}/athlates.zip -d {folder}")
+    runShell(f"mv {folder}/Athlates_2014_04_26 {folder}/athlates")
+    return folder
+
+
+def athlatesBuild(folder: str, db_hla: str = "origin") -> str:
+    """https://www.broadinstitute.org/viral-genomics/athlates"""
+    if db_hla == "origin":
+        output_name = f"{folder}/hla_3090"  # written in A_nuc.txt
+    else:
+        output_name = f"{folder}/{Path(db_hla).name}"
+    if Path(output_name + "/ref").exists():
+        return output_name
+
+    if db_hla == "origin":
+        runShell(f"cp -r {folder}/athlates/db {output_name}")
+        runShell(f"ln -s DRB_nuc.txt {output_name}/msa/DRB1_nuc.txt")
+        runShell(f"ln -s DQB_nuc.txt {output_name}/msa/DQB1_nuc.txt")
+        runDocker(
+            "athlates",
+            f"novoindex {output_name}/ref/hla.clean.nix {output_name}/ref/hla.clean.fasta",
+        )
+    else:
+        runShell(f"mkdir -p {output_name}")
+        runShell(f"cp -r {db_hla}/alignments {output_name}/msa")
+        runShell(f"cp {db_hla}/hla_gen.fasta {output_name}/")
+        runDocker(
+            "athlates",
+            f"perl /usr/local/bin/hla_ref_clean.pl "
+            f"-ref {output_name}/hla_gen.fasta  -oprefix {output_name}/hla",
+        )
+        runShell(f"mkdir -p {output_name}/bed {output_name}/ref")
+        runShell(f"mv {output_name}/*.bed {output_name}/bed")
+        runShell(f"mv {output_name}/*.fasta {output_name}/ref")
+        runDocker(
+            "athlates",
+            f"novoindex {output_name}/ref/hla.clean.nix {output_name}/ref/hla.clean.fasta",
+        )
+    return output_name
+
+
+def athlatesPreRun(input_name: str, index: str) -> str:
+    """Run read mapping, and separate each athlates gene task"""
+    output_name = input_name + ".athlates_" + name2Single(index) + ".novoalign"
+    output_call = output_name + ".call.{}"
+    if Path(output_name + ".bam").exists():
+        return output_call
+    runShell(f"gunzip -f --keep {input_name}.read.1.fq.gz")
+    runShell(f"gunzip -f --keep {input_name}.read.2.fq.gz")
+    runDocker(
+        "athlates",
+        "sh -c 'novoalign -o SAM -r Random -i PE 100-1400 -H -t 30 -n 100 "
+        f"  -d {index}/ref/hla.clean.nix"
+        f"  -f {input_name}.read.1.fq {input_name}.read.2.fq"
+        f"  >  {output_name}.sam'",
+    )
+    bamSort(output_name, sam=True)
+
+    # same as "perl /usr/local/bin/runAthlates_usr_update.pl "
+    # but using `samtools sort -n `
+    # f"  -ibam {output_name2}.bam "
+    # f"  -bed {index}/bed/hla.{gene}.bed -nbed {index}/bed/hla.non-{gene}.bed "
+    # f"  -msa {index}/msa/{gene}_nuc.txt "
+    # f"  -odir {parent} -oprf {name}.{gene}"
+    for gene in ["A", "B", "C", "DRB1", "DQB1"]:
+        output_name1 = output_call.format(gene) + ".target"
+        output_name2 = output_call.format(gene) + ".nontarget"
+
+        with open(f"{output_call.format(gene)}.sh", "w") as f:
+            f.write("set -x\n")
+            f.write("set -o pipefail\n")
+            #  f.write("set -e\n")  # enable this will break most of samples
+            f.write(
+                f"samtools view -h -F 4 -L {index}/bed/hla.{gene}.bed {output_name}.bam -o {output_name1}.bam"
+            )
+            f.write("\n")
+            f.write(
+                f"samtools sort -n {output_name1}.bam -o {output_name1}.sortname.bam"
+            )
+            f.write("\n")
+            f.write(
+                f"samtools view -h -F 4 -L {index}/bed/hla.non-{gene}.bed {output_name}.bam -o {output_name2}.bam"
+            )
+            f.write("\n")
+            f.write(
+                f"samtools sort -n {output_name2}.bam -o {output_name2}.sortname.bam"
+            )
+            f.write("\n")
+            f.write(
+                f"typing -bam {output_name1}.sortname.bam -exlbam {output_name2}.sortname.bam "
+                f"       -msa {index}/msa/{gene}_nuc.txt -hd 2 "
+                f"       -o {output_call.format(gene)}"
+            )
+    return output_call
+
+
+def athlatesRun(input_name: str) -> str:
+    """https://github.com/cliu32/athlates"""
+    output_name = input_name
+    if Path(input_name + ".typing.txt").exists():
+        return output_name
+    try:
+        runDocker("athlates", f"bash {input_name}.sh")
+    except subprocess.CalledProcessError:
+        pass
+    return output_name
+
+
+def athlatesReadResult(input_name: str) -> str:
+    """
+    Read athlates result into our hla_result format
+
+    Its format:
+    ```
+     ------------ Inferred Allelic Pairs -------------
+
+     A*01:01:01:02N      A*11:126        0
+     A*01:01:01:01       A*11:126        0
+    ```
+    """
+    output_name = input_name.replace(".{}", "_merge") + ".hla_result"
+    # if Path(f"{output_name}.tsv").exists():
+    #     return output_name
+    alleles = []
+    for f in glob(f"{input_name.format('*')}.typing.txt"):
+        skip = True
+        for i in open(f):
+            if "Inferred" in i:
+                skip = False
+                continue
+            if skip or not i.strip():
+                continue
+            # first infer candiated
+            alleles.extend(i.strip().split()[:2])
+            break
+
+    df = allelesToTable(alleles, default_gene=["A", "B", "C"])
+    df["name"] = input_name
+    df.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
 def renameResult(input_name: str, sample_name: str) -> str:
     """rename xx.*.hla_result.csv into xx.hla_result.{method}.csv"""
     suffix = input_name.split(sample_name)[1]
@@ -1903,6 +2060,7 @@ def readArgument() -> argparse.Namespace:
         "--tools",
         default=[
             # "arcashla",  # for RNA, easy to fail
+            # "athlates",  # for RNA, easy to fail
             "bwakit",
             "graphtyper",
             "hisat",
@@ -2081,6 +2239,19 @@ if __name__ == "__main__":
     # Below tools mapped all the reads on HLA sequences
     # without any filtering (e.g. remove unrelated read)
     # it may cause some problems
+    if "athlates" in args.tools:
+        db_hla_for_athlates = db_hla
+        if version != "origin" and tuple(map(int, version.split("."))) > (3, 31, 0):
+            db_hla_for_athlates = downloadHLA("", version="3.31.0")
+        folder = createFolder("", "athlates")
+        folder = athlatesDownload(folder)
+        folder = checkAndBuildImage(folder)
+        index = athlatesBuild(folder, db_hla_for_athlates)
+        samples = athlatesPreRun(samples_fq, index)
+        samples = globAndRun(athlatesRun, samples)
+        samples = athlatesReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
     if "hlaforest" in args.tools:
         folder = createFolder("", "hlaforest")
         folder = checkAndBuildImage(folder)
