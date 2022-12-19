@@ -15,13 +15,14 @@ Tools includes
 * HLAminer=1.4 (https://github.com/bcgsc/HLAminer)
 * HLAProfiler=1.0.5 (RNA, https://github.com/ExpressionAnalysis/HLAProfiler)
 * HLAscan=2.1.4 (https://github.com/SyntekabioTools/HLAscan)
-* HLAssign=?? (https://www.ikmb.uni-kiel.de/resources/download-tools/software/hlassign)
+* HLAssign=2015 (https://www.ikmb.uni-kiel.de/resources/download-tools/software/hlassign)
 * Kourami=0.9.6 (https://github.com/Kingsford-Group/kourami)
 * OptiType=1.3.5 (RNA, https://github.com/FRED-2/OptiType)
 * PHLAT=1.1 (https://sites.google.com/site/phlatfortype)
 * POLYSOLVER=v4 (https://software.broadinstitute.org/cancer/cga/polysolver)
 * seq2HLA=2.2--2 (RNA, https://github.com/TRON-Bioinformatics/seq2HLA)
 * SOAP-HLA=1.0.0 (https://github.com/adefelicibus/soap-hla)
+* STC-Seq=1.0 (https://ngdc.cncb.ac.cn/biocode/tools/BT007068)
 * HLA-VBSeq=11/22/2018 (https://nagasakilab.csml.org/hla/)
 * xHLA=34221ea (https://github.com/humanlongevity/HLA)
 
@@ -46,6 +47,7 @@ Some tools are able to update the index to the latest IMGT-HLA version
 * POLYSOLVER (Provided 3.10.0, cannot change)
 * seq2HLA (Unknwon, cannot change)
 * SOAP-HLA (Provided 3.9.0, cannot change)
+* STC-Seq (Provided 3.26.0, cannot change)
 * HLA-VBSeq (Provided 3.31.0 -> Current 3.49.0)
 * xHLA=34221ea (Unknwon -> Current 3.49.0)
 
@@ -211,8 +213,6 @@ These tools require manully fills the download requests:
 * ATHLATES (After accepted, copy to `athlates/athlates.zip`, https://sites.google.com/site/projectphlat/Downloads)
 * PolyPheMe
 
-TODO:
-* STC-seq (https://ngdc.cncb.ac.cn/biocode/tools/BT007068/manual)
 
 ## Reference
 * **arcasHLA** Rose Orenbuch, Ioan Filip, Devon Comito, Jeffrey Shaman, Itsik Pe’er, Raul Rabadan, arcasHLA: high-resolution HLA typing from RNAseq, Bioinformatics, Volume 36, Issue 1, 1 January 2020, Pages 33–40, https://doi.org/10.1093/bioinformatics/btz474
@@ -234,6 +234,7 @@ TODO:
 * **POLYSOLVER** Shukla, S., Rooney, M., Rajasagi, M. et al. Comprehensive analysis of cancer-associated somatic mutations in class I HLA genes. Nat Biotechnol 33, 1152–1158 (2015). https://doi.org/10.1038/nbt.3344
 * **seq2HLA** Boegel, S., Löwer, M., Schäfer, M. et al. HLA typing from RNA-Seq sequence reads. Genome Med 4, 102 (2013). https://doi.org/10.1186/gm403
 * **SOAP-HLA** Cao H, Wu J, Wang Y, Jiang H, Zhang T, et al. (2013) An Integrated Tool to Study MHC Region: Accurate SNV Detection and HLA Genes Typing in Human MHC Region Using Targeted High-Throughput Sequencing. PLOS ONE 8(7): e69388. https://doi.org/10.1371/journal.pone.0069388`
+* **STC-Seq** Jiao, Y., Li, R., Wu, C. et al. High-sensitivity HLA typing by Saturated Tiling Capture Sequencing (STC-Seq). BMC Genomics 19, 50 (2018). https://doi.org/10.1186/s12864-018-4431-5
 * **xHLA** Xie, Chao, et al. "Fast and accurate HLA typing from short-read next-generation sequence data with xHLA." Proceedings of the National Academy of Sciences 114.30 (2017): 8059-8064.
 
 * **IMGT** James Robinson, Dominic J Barker, Xenia Georgiou, Michael A Cooper, Paul Flicek, Steven G E Marsh, IPD-IMGT/HLA Database, Nucleic Acids Research, Volume 48, Issue D1, 08 January 2020, Pages D948–D955, https://doi.org/10.1093/nar/gkz950

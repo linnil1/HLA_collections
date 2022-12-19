@@ -61,6 +61,7 @@ images = {
     "polysolver": "docker.io/sachet/polysolver:v4",
     "seq2hla": "localhost/linnil1/seq2hla:2.2--2",
     "soaphla": "localhost/linnil1/soaphla:1.0.0-pl526_3",
+    "stcseq": "localhost/linnil1/stcseq:v1.0",
     "vbseq": "localhost/linnil1/vbseq:20181122",
     "xhla": "localhost/linnil1/xhla",
     "phlat_download": "docker.io/mgibio/phlat:1.1_withindex",
@@ -85,6 +86,7 @@ folders = {
     "phlat": "phlat",
     "seq2hla": "seq2hla",
     "soaphla": "soaphla",
+    "stcseq": "stcseq",
     "vbseq": "vbseq",
     "xhla": "xhla",
 }
@@ -2181,11 +2183,73 @@ def hlassignReadResult(input_name: str) -> str:
     return output_name
 
 
+def stcseqBuild(folder: str, db_hla: str = "origin") -> str:
+    """https://ngdc.cncb.ac.cn/biocode/tools/BT007068/releases/v1.0"""
+    if db_hla == "origin":
+        output_name = f"{folder}/hla_3260"  # written in paper
+
+    if Path(output_name + "/exon-70bp.fastq").exists():
+        return output_name
+
+    runShell(
+        f"wget https://ngdc.cncb.ac.cn/biocode/tools/7068/releases/v1.0/file/download?filename=STC-Seq.tar.gz -O {folder}/STC-Seq.tar.gz"
+    )
+    runShell(f"tar -vxf {folder}/STC-Seq.tar.gz -C {folder}")
+    runShell(f"mv {folder}/STC-Seq/data {output_name}")
+    runDocker(
+        "stcseq",
+        f"getArtifical_reads {output_name}/hla.exon.fasta {output_name}/exon-70bp.fastq",
+    )
+    return output_name
+
+
+def stcseqRun(input_name: str, index: str) -> str:
+    """ "https://ngdc.cncb.ac.cn/biocode/tools/BT007068/manual"""
+    output_folder = input_name + ".stcseq_" + name2Single(index)
+    output_name = output_folder + "/data"
+    if Path(output_name + "_report.txt").exists():
+        return output_name
+    runShell(f"mkdir -p {output_folder}")
+    runShell(f"zcat {input_name}.read.*.fq.gz > {output_name}.fq")
+    runDocker("stcseq", f"step_1.sh {output_name} {index}")
+    runDocker("stcseq", f"step_2.sh {output_name} {index}")
+    runDocker(
+        "stcseq",
+        f"Rscript /usr/local/bin/Initial_screening.R "
+        f"{output_name}_position-array.txt 7 15 {output_name}_second_retain_allele.txt",
+    )
+    runDocker("stcseq", f"step_3.sh {output_name} {index}")
+    return output_name
+
+
+def stcseqReadResult(input_name: str) -> str:
+    """
+    Read STC-seq into our hla_result format
+
+    Its format:
+    ```
+    ##Valid allele pair
+    Locus   Genotype    Alternative_genotype    Quality
+    B   B*07:02:01,B*82:02:01   null    PASS
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+    txt = pd.read_csv(f"{input_name}_report.txt", sep="\t", comment="#")
+    alleles_pair = txt["Genotype"]
+    alleles = [j for i in alleles_pair for j in i.split(",")]
+    df = allelesToTable(alleles, default_gene=["A", "B", "C"])
+    df["name"] = input_name
+    df.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
 def renameResult(input_name: str, sample_name: str) -> str:
     """rename xx.*.hla_result.csv into xx.hla_result.{method}.csv"""
     suffix = input_name.split(sample_name)[1]
     suffix = suffix.split(".hla_result")[0]
-    suffix = suffix[1:].replace(".", "_")
+    suffix = suffix[1:].replace(".", "_").replace("/", "_")
     output_name = f"{sample_name}.hla_result.{suffix}"
     print(output_name)
     # "../"  for data/
@@ -2481,6 +2545,14 @@ if __name__ == "__main__":
         index = seq2hlaBuild(folder, db_hla)
         samples = seq2hlaRun(samples_fq, index)
         samples = seq2hlaReadResult(samples)
+        samples = renameResult(samples, samples_fq)
+
+    if "stcseq" in args.tools:
+        folder = createFolder("", "stcseq")
+        folder = checkAndBuildImage(folder)
+        index = stcseqBuild(folder, db_hla)
+        samples = stcseqRun(samples_fq, index)
+        samples = stcseqReadResult(samples)
         samples = renameResult(samples, samples_fq)
 
     mergeResult(samples_fq + ".hla_result.{}")
