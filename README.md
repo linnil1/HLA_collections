@@ -15,6 +15,7 @@ Tools includes
 * HLAminer=1.4 (https://github.com/bcgsc/HLAminer)
 * HLAProfiler=1.0.5 (RNA, https://github.com/ExpressionAnalysis/HLAProfiler)
 * HLAscan=2.1.4 (https://github.com/SyntekabioTools/HLAscan)
+* HLAssign=?? (https://www.ikmb.uni-kiel.de/resources/download-tools/software/hlassign)
 * Kourami=0.9.6 (https://github.com/Kingsford-Group/kourami)
 * OptiType=1.3.5 (RNA, https://github.com/FRED-2/OptiType)
 * PHLAT=1.1 (https://sites.google.com/site/phlatfortype)
@@ -38,6 +39,7 @@ Some tools are able to update the index to the latest IMGT-HLA version
 * HLAminer (Provided 3.33.0 -> Current 3.49.0)
 * HLAProfiler (Provided 3.24.0, maybe can change but require more time to try)
 * HLAscan (Unknwon, cannot change, not open-source)
+* HLAssign (Provided 3.12.0 -> Current 3.49.0)
 * Kourami (Provided 3.24.0 -> Current 3.49.0)
 * OptiType (Provided 3.14.0, cannot change)
 * PHLAT (Provided 3.9.0, cannot change)
@@ -200,6 +202,7 @@ Some HLA tools are not considered as TODO:
 * SNP2HLA (SNP array data as input)
 * HIBAG (SNP array)
 * HLAreporter (VERY BAD CODE, I don't have enough enthusiasm to fix them. https://github.com/jiaolongsun/hlareporter)
+* HLAssign2 (Just visualization update)
 
 
 These tools require manully fills the download requests:
@@ -208,10 +211,8 @@ These tools require manully fills the download requests:
 * ATHLATES (After accepted, copy to `athlates/athlates.zip`, https://sites.google.com/site/projectphlat/Downloads)
 * PolyPheMe
 
-
 TODO:
-* HLAssign (https://www.ikmb.uni-kiel.de/resources/download-tools/software/hlassign)
-
+* STC-seq (https://ngdc.cncb.ac.cn/biocode/tools/BT007068/manual)
 
 ## Reference
 * **arcasHLA** Rose Orenbuch, Ioan Filip, Devon Comito, Jeffrey Shaman, Itsik Pe’er, Raul Rabadan, arcasHLA: high-resolution HLA typing from RNAseq, Bioinformatics, Volume 36, Issue 1, 1 January 2020, Pages 33–40, https://doi.org/10.1093/bioinformatics/btz474
@@ -225,6 +226,7 @@ TODO:
 * **HLAminer** Warren, R.L., Choe, G., Freeman, D.J. et al. Derivation of HLA types from shotgun sequence datasets. Genome Med 4, 95 (2012). https://doi.org/10.1186/gm396
 * **HLAProfiler** Buchkovich, M.L., Brown, C.C., Robasky, K. et al. HLAProfiler utilizes k-mer profiles to improve HLA calling accuracy for rare and common alleles in RNA-seq data. Genome Med 9, 86 (2017). https://doi.org/10.1186/s13073-017-0473-6
 * **HLAscan** Ka, S., Lee, S., Hong, J. et al. HLAscan: genotyping of the HLA region using next-generation sequencing data. BMC Bioinformatics 18, 258 (2017). https://doi.org/10.1186/s12859-017-1671-3
+* **HLAssign** Michael Wittig, Jarl A. Anmarkrud, Jan C. Kässens, Simon Koch, Michael Forster, Eva Ellinghaus, Johannes R. Hov, Sascha Sauer, Manfred Schimmler, Malte Ziemann, Siegfried Görg, Frank Jacob, Tom H. Karlsen, Andre Franke, Development of a high-resolution NGS-based HLA-typing and analysis pipeline, Nucleic Acids Research, Volume 43, Issue 11, 23 June 2015, Page e70, https://doi.org/10.1093/nar/gkv184
 * **HLA-VBSeq** Nariai, N., Kojima, K., Saito, S. et al. HLA-VBSeq: accurate HLA typing at full resolution from whole-genome sequencing data. BMC Genomics 16 (Suppl 2), S7 (2015). https://doi.org/10.1186/1471-2164-16-S2-S7
 * **Kourami** Lee, H., Kingsford, C. Kourami: graph-guided assembly for novel human leukocyte antigen allele discovery. Genome Biol 19, 16 (2018). https://doi.org/10.1186/s13059-018-1388-2
 * **OptiType** András Szolek, Benjamin Schubert, Christopher Mohr, Marc Sturm, Magdalena Feldhahn, Oliver Kohlbacher, OptiType: precision HLA typing from next-generation sequencing data, Bioinformatics, Volume 30, Issue 23, 1 December 2014, Pages 3310–3316, https://doi.org/10.1093/bioinformatics/btu548

@@ -55,6 +55,7 @@ images = {
     "hlaminer": "localhost/linnil1/hlaminer:1.4",
     "hlaprofiler": "quay.io/biocontainers/hlaprofiler:1.0.5--hdfd78af_3",
     "hlascan": "localhost/linnil1/hlascan:2.1.4",
+    "hlassign": "localhost/linnil1/hlassign",
     "kourami_preprocess": "localhost/linnil1/kourami_preprocess",
     "optitype": "quay.io/biocontainers/optitype:1.3.5--hdfd78af_2",
     "polysolver": "docker.io/sachet/polysolver:v4",
@@ -78,6 +79,7 @@ folders = {
     "hlaminer": "hlaminer",
     "hlaprofiler": "hlaprofiler",
     "hlascan": "hlascan",
+    "hlassign": "hlassign",
     "kourami": "kourami",
     "optitype": "optitype",
     "phlat": "phlat",
@@ -1986,13 +1988,185 @@ def athlatesReadResult(input_name: str) -> str:
     ```
     """
     output_name = input_name.replace(".{}", "_merge") + ".hla_result"
-    # if Path(f"{output_name}.tsv").exists():
-    #     return output_name
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
     alleles = []
     for f in glob(f"{input_name.format('*')}.typing.txt"):
         skip = True
         for i in open(f):
             if "Inferred" in i:
+                skip = False
+                continue
+            if skip or not i.strip():
+                continue
+            # first infer candiated
+            alleles.extend(i.strip().split()[:2])
+            break
+
+    df = allelesToTable(alleles, default_gene=["A", "B", "C"])
+    df["name"] = input_name
+    df.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
+def hlassignBuild(folder: str, db_hla: str = "origin") -> str:
+    """
+    HLAssign v2 doesn't provided database
+    So I use first version: which is 3.12.0
+
+    Also, in alignments/B_nuc.txt after 3.34.0,
+    B*13:123Q introduced and break the format of txt,
+    I temporary remove the tailing sequences.
+    """
+    if db_hla == "origin":
+        output_name = f"{folder}/hla_3120"  # folder name
+    else:
+        output_name = f"{folder}/{Path(db_hla).name}"
+
+    if Path(f"{output_name}/DPB1_nuc.hlp.txt").exists():
+        return output_name
+
+    if db_hla == "origin":
+        runShell(
+            f"wget https://www.ikmb.uni-kiel.de/sites/default/files/downloads/hlassign/pilot_source_code.zip -P {folder}"
+        )
+        runShell(f"unzip {folder}/pilot_source_code.zip -d {folder}")
+        runShell(f"cp -r {folder}/pilot_source_code/IMGTv312 {output_name}")
+        runShell(f"cp {folder}/pilot_source_code/ambiguity_table.txt {output_name}")
+        runShell(f"cp {folder}/pilot_source_code/incomplete_alleles.txt {output_name}")
+        runShell(f"ln -s DRB_gen.txt {output_name}/DRB1_gen.txt")
+        runShell(f"ln -s DPA_nuc.txt {output_name}/DPA1_nuc.txt")
+        runShell(f"ln -s DPB_nuc.txt {output_name}/DPB1_nuc.txt")
+        runShell(f"ln -s DQA_nuc.txt {output_name}/DQA1_nuc.txt")
+        runShell(f"ln -s DQB_nuc.txt {output_name}/DQB1_nuc.txt")
+    else:
+        runShell(f"cp -r {db_hla}/alignments {output_name}")
+        runShell(f"ln -s DRB_nuc.txt {output_name}/DRB1_nuc.txt")
+
+        # modifiy nuc
+        for gene in ["A", "B", "C", "DRB1", "DPA1", "DPB1", "DQA1", "DQB1"]:
+            txt = open(f"{output_name}/{gene}_nuc.txt").read()
+            txt_arr = txt.split("cDNA")
+            txt_arr_new = [txt_arr[0]]
+            num_line = txt_arr[0].count("\n")
+            for i in txt_arr[1:]:
+                if i.count("\n") < num_line - 10:
+                    continue
+                num_line = i.count("\n")
+                txt_arr_new.append(i)
+            open(f"{output_name}/{gene}_nuc.txt", "w").write("cDNA".join(txt_arr_new))
+
+        # I don't know how the generated
+        runShell(f"cp {folder}/pilot_source_code/incomplete_alleles.txt {output_name}")
+        # I think this is G group
+        # runShell(f"cp {folder}/pilot_source_code/ambiguity_table.txt {output_name}")
+        arrs = []
+        for line in open("/home/linnil1//HLA/hla_3490/wmda/hla_nom_g.txt"):
+            if line.startswith("#"):
+                continue
+            gene, group, name = line.strip().split(";")
+            if not name:
+                name = group.split("/")[0]
+            arrs.append([gene + name, *[gene + i for i in group.split("/")]])
+        df = pd.DataFrame(arrs)  # it will become same length
+        df.to_csv(
+            f"{output_name}/ambiguity_table.txt", index=False, sep="\t", header=False
+        )
+
+    # ANY gene
+    for gene in ["A", "B", "C", "DRB1", "DPA1", "DPB1", "DQA1", "DQB1"]:
+        runDocker(
+            "hlassign",
+            f"gethlamultialignexonwise {output_name}/{gene}_gen.txt "
+            f"  > {output_name}/{gene}_gen.hlp.txt",
+        )
+        runDocker(
+            "hlassign",
+            f"gethlamultialignexonwise {output_name}/{gene}_nuc.txt "
+            f"  > {output_name}/{gene}_nuc.hlp.txt",
+        )
+    return output_name
+
+
+def hlassignPreRun(input_name: str, index: str) -> str:
+    """
+    Split each gene for typing by hlassign.
+    https://www.ikmb.uni-kiel.de/resources/download-tools/software/hlassign
+    """
+    output_name_base = input_name + ".hlassign_" + name2Single(index)
+    output_name_pattern = output_name_base + ".gene.{}"
+
+    if Path(output_name_pattern.format("C") + ".sh").exists():
+        return output_name_pattern
+
+    runShell(f"zcat {input_name}.read.*.fq.gz > {output_name_base}.fq")
+    # get read length by read one line in readfile
+    read_f = open(output_name_base + ".fq")
+    next(read_f)  # at least one read exists
+    read = next(read_f)
+    read_length = len(read.strip())
+
+    # for gene in ["A", "B", "C"]:
+    for gene in ["B"]:
+        output_name = output_name_pattern.format(gene)
+        if Path(output_name + ".sh").exists():
+            continue
+        with open(output_name + ".sh", "w") as f:
+            f.write("set -x\n")
+            f.write("set -o pipefail\n")
+            f.write(
+                f"prefilterhlareads --Ref {index}/{gene}_gen.hlp.txt "
+                f"  --read_length {read_length} --min_alignment 30 "
+                f"  --fastq {output_name_base}.fq "
+                f"  --on-target {output_name}.target.fq --off-target {output_name}.offtarget.fq"
+            )
+            output_name = output_name + ".target"
+            runShell(f"mkdir -p {output_name}/{Path(output_name).parent}")
+            # Usage said cd {output_name}
+            # I don't like it
+            parent_str = "../" * len(Path(output_name).parent.parents)
+            runShell(f"ln -s ./{parent_str} {output_name}/{output_name}")
+            f.write("\n")
+            f.write(f"sed -n '1~4s/^@/>/p;2~4p' {output_name}.fq > {output_name}.fa")
+            f.write("\n")
+            f.write(
+                f"nextcallhla --cDNA {index}/{gene}_nuc.txt --gDNA {index}/{gene}_gen.txt"
+                f"  --bias-alleles {index}/incomplete_alleles.txt "
+                f"  --amb-table {index}/ambiguity_table.txt "
+                f"  --read-length {read_length}"
+                f"  --reads {output_name}.fa "
+                f"  --out {output_name}.result.txt "
+                f"  --scratch {output_name} --outPic {output_name} "
+            )
+    return output_name_pattern
+
+
+def hlassignRun(input_name: str) -> str:
+    """Each task takes very long time"""
+    if Path(input_name + ".result.txt").exists():
+        return input_name
+    runDocker("hlassign", f"bash {input_name}.sh")
+    return input_name
+
+
+def hlassignReadResult(input_name: str) -> str:
+    """
+    Read hlassign result into our hla_result format
+
+    Its format:
+    ```
+    #[Result]
+    B*82:02 B*82:02 -   1
+    ```
+    """
+    output_name = input_name.replace(".{}", "_merge") + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+    alleles = []
+    for f in glob(f"{input_name.format('*')}.result.txt"):
+        skip = True
+        for i in open(f):
+            if "Result" in i:
                 skip = False
                 continue
             if skip or not i.strip():
@@ -2235,6 +2409,14 @@ if __name__ == "__main__":
         samples = hisatRun(samples_fq, index)
         samples = hisatReadResult(samples)
         samples = renameResult(samples, samples_fq)
+
+    if "hlassign" in args.tools:
+        folder = createFolder("", "hlassign")
+        folder = checkAndBuildImage(folder)
+        index = hlassignBuild(folder, db_hla)
+        samples = hlassignPreRun(samples_fq, index)
+        samples = globAndRun(hlassignRun, samples)
+        samples = hlassignReadResult(samples)
 
     # Below tools mapped all the reads on HLA sequences
     # without any filtering (e.g. remove unrelated read)

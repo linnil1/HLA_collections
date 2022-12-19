@@ -12,6 +12,7 @@ __pycache__
 
 # index
 arcas/
+athlates/
 bwakit/
 graphtyper/
 hisat/
@@ -22,6 +23,7 @@ hlala/
 hlaminer/
 hlaprofiler/
 hlascan/
+hlassign/
 kourami/
 optitype/
 phlat/
