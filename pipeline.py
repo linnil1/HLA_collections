@@ -1,15 +1,15 @@
 """
 File: pipelilne.py of HLA_collections
 Author: linnil1
-Description: Write the build, running and read parsing sciprts
-in the Python functions of each HLA tools.
+Description: Build, running HLA tools and read parsing are all written in this script.
 
 Design Pattern:
 * `folder  = createFolder("", "xxx")          `  Folder creation
 * `folder  = xxxDownload(folder)              `  Download data that required to be used no matter the index is
 * `folder  = checkAndBuildImage(folder)       `  Build docker image
 * `index   = xxxBuild(folder, db_hla)         `  Build HLA index from db_hla (The path of IMGT'DB)
-* `samples = xxxRun(samples_fq, index)        `  Run the tool by giving index
+* `samples = xxxPreprocess(samples)           `  Preprocess of the tools. They are not related to IMGT version.
+* `samples = xxxRun(samples, index)           `  Run the tool by giving index
 * `samples = xxxReadResult(samples)           `  Read the result from the tool's output and save as tsv
 * `samples = renameResult(samples, samples_fq)`  Rename the hla result file for more organized
 
@@ -32,11 +32,13 @@ import re
 import gzip
 import json
 import uuid
-import pandas as pd
 import argparse
 import subprocess
 
+import pandas as pd
 
+
+# resource part
 resources: dict[str, int] = {  # per sample
     "threads": 4,
     "memory": 7,  # unit: G
@@ -115,11 +117,6 @@ def createFolder(base_folder: str = "", name: str = "") -> str:
     return output_name
 
 
-def name2Single(name: str) -> str:
-    """Trun everything special character ('./') into '_'"""
-    return name.replace("/", "_").replace(".", "_")
-
-
 def runDocker(
     image: str, cmd: str, opts: str = "", chdir: str = ""
 ) -> subprocess.CompletedProcess[str]:
@@ -173,6 +170,7 @@ def checkAndBuildImage(folder: str, image: str = "") -> str:
     return folder
 
 
+# pipeline control part
 def globAndRun(func: Callable[[str], str], input_name: str) -> str:
     """This is a temporary solution if not using my pipelilne"""
     for i in glob(input_name.replace("{}", "*") + ".json"):
@@ -187,44 +185,25 @@ def addSuffix(input_name: str, suffix: str) -> str:
     return input_name + suffix
 
 
-def allelesToTable(
-    alleles: Iterable[str], default_gene: list[str] = []
-) -> pd.DataFrame:
+# utility pipeline/function
+def name2Single(name: str) -> str:
+    """Trun everything special character ('./') into '_'"""
+    return name.replace("/", "_").replace(".", "_")
+
+
+def relink(src: str, dst: str) -> None:
     """
-    Turn list of alleles into our hla_result format.
+    Solve ln when src is not absolute
 
-    Like so:
-    ```
-    gene	1	2	name
-    A	A*11:126:01:01	A*01:01:01:01	data/NA12878.hisat_hisat_hla_3430
-    B	B*08:01:01:45	B*56:01:01:03	data/NA12878.hisat_hisat_hla_3430
-    C	C*01:02:01:13	C*01:02:01:06	data/NA12878.hisat_hisat_hla_3430
-    ```
+    e.g. ln -s data/1/2 data/1/3 will fail
     """
-    gene_allele: dict[str, list[str]] = defaultdict(list)
-    for gene in default_gene:
-        gene_allele[gene] = []
-
-    for allele in alleles:
-        gene = allele.split("*")[0]
-        gene_allele[gene].append(allele)
-
-    hla_list = []
-    for gene, alleles in gene_allele.items():
-        hla_list.append(
-            {
-                "gene": gene,
-                "1": "",
-                "2": "",
-            }
-        )
-        if len(alleles) > 0:
-            hla_list[-1]["1"] = alleles[0]
-        if len(alleles) > 1:
-            hla_list[-1]["2"] = alleles[1]
-    df = pd.DataFrame(hla_list)
-    print(df)
-    return df
+    if Path(src).is_absolute():
+        runShell(f"ln -fs {src} {dst}")
+    elif Path(dst).is_absolute():
+        raise NotImplementedError
+    else:
+        parent_folder = "../" * (len(Path(dst).parents) - 1)
+        runShell(f"ln -fs {parent_folder}{src} {dst}")
 
 
 def bamSort(input_name: str, sam: bool = False) -> str:
@@ -269,24 +248,6 @@ def bam2Fastq(input_name: str) -> str:
     return output_name
 
 
-def downloadSample(folder: str = "data") -> str:
-    """Download NA12878 example from HLA-LA"""
-    name = folder + "/NA12878"
-    if Path(f"{name}.read.2.fq.gz").exists():
-        return name
-    Path("data").mkdir(exist_ok=True)
-    runShell(
-        f"wget 'https://www.dropbox.com/s/xr99u3vqaimk4vo/NA12878.mini.cram?dl=0' -O {name}.download.cram"
-    )
-    runDocker(
-        "samtools",
-        f"samtools view -@{getThreads()} {name}.download.cram -o {name}.bam",
-    )
-    output_name = bam2Fastq(name)
-    runShell(f"rm {name}.bam")
-    return output_name
-
-
 def bwaIndex(input_name: str) -> str:
     """bwa index"""
     if Path(f"{input_name}.bwt").exists():
@@ -309,6 +270,45 @@ def bwaRun(input_name: str, index: str) -> str:
     return output_name
 
 
+def addUnmap(input_name: str) -> str:
+    """
+    HLA-LA has the step for extracting unmapped read
+    and it require at least one unmapped reads.
+    So I add this step to ensure HLA-LA doesn't fail.
+    """
+    output_name = input_name + ".addunmap"
+    if Path(f"{output_name}.bam").exists():
+        return output_name
+    view = runDocker(
+        "samtools", f"samtools view -h {input_name}.bam -o {output_name}.sam"
+    )
+    with open(output_name + ".sam", "a") as f:
+        fields = ["ggggg", 77, "*", 0, 0, "*", "*", 0, 0, "A", "A", "AS:i:0 XS:i:0"]
+        f.write("\t".join(map(str, fields)) + "\n")
+        fields[1] = 141
+        f.write("\t".join(map(str, fields)) + "\n")
+    bamSort(output_name, sam=True)
+    return output_name
+
+
+def unzipFastq(input_name: str) -> str:
+    """unzip xxx.fq.gz to xx"""
+    if not Path(input_name + ".read.1.fq").exists():
+        runShell(f"gunzip -f --keep {input_name}.read.1.fq.gz")
+    if not Path(input_name + ".read.2.fq").exists():
+        runShell(f"gunzip -f --keep {input_name}.read.2.fq.gz")
+    return input_name
+
+
+def mergeFastq(input_name: str) -> str:
+    """Unzip fastq and merge them"""
+    output_name = input_name + ".read_merge"
+    if Path(output_name + ".fq").exists():
+        return output_name
+    runShell(f"zcat {input_name}.read.*.fq.gz > {output_name}.fq")
+    return output_name
+
+
 def downloadRef(folder: str = "bwakit", name: str = "hs38DH") -> str:
     """https://github.com/lh3/bwa/tree/master/bwakit"""
     if Path(f"{folder}/{name}.fa").exists():
@@ -319,6 +319,51 @@ def downloadRef(folder: str = "bwakit", name: str = "hs38DH") -> str:
     return f"{folder}/{name}.fa"
 
 
+def downloadSample(folder: str = "data") -> str:
+    """Download NA12878 example from HLA-LA"""
+    name = folder + "/NA12878"
+    if Path(f"{name}.read.2.fq.gz").exists():
+        return name
+    runShell("mkdir -p data")
+    runShell(
+        f"wget 'https://www.dropbox.com/s/xr99u3vqaimk4vo/NA12878.mini.cram?dl=0' -O {name}.download.cram"
+    )
+    runDocker(
+        "samtools",
+        f"samtools view -@{getThreads()} {name}.download.cram -o {name}.bam",
+    )
+    output_name = bam2Fastq(name)
+    runShell(f"rm {name}.bam")
+    return output_name
+
+
+def downloadHLA(folder: str = "", version: str = "3.49.0") -> str:
+    """download database from https://github.com/ANHIG/IMGTHLA"""
+    version_name = version.replace(".", "")
+    if folder:
+        folder = folder + "/hla_" + version_name
+    else:
+        folder = "hla_" + version_name
+    if Path(folder).exists():
+        return folder
+    runShell(
+        f"wget https://github.com/ANHIG/IMGTHLA/archive/refs/tags/v{version}-alpha.zip"
+    )
+    runShell(f"unzip v{version}-alpha.zip")
+    runShell(f"rm v{version}-alpha.zip")
+    runShell(f"mv IMGTHLA-{version}-alpha {folder}")
+    return folder
+
+
+def isVersionLarger(version_cur: str, version_max: str) -> bool:
+    if version_cur == "origin":
+        return False
+    version_cur_tuple = tuple(map(int, version_cur.split(".")))
+    version_max_tuple = tuple(map(int, version_max.split(".")))
+    return version_cur_tuple > version_max_tuple
+
+
+# Tool pipeline
 def bwakitRun(input_name: str, index: str) -> str:
     """https://github.com/lh3/bwa/tree/master/bwakit"""
     output_name = input_name + ".bwakit_" + name2Single(index)
@@ -358,24 +403,6 @@ def bwakitReadResult(input_name: str) -> str:
     df1["name"] = input_name
     df1.to_csv(output_name + ".tsv", index=False, sep="\t")
     return output_name
-
-
-def downloadHLA(folder: str = "", version: str = "3.49.0") -> str:
-    """download database from https://github.com/ANHIG/IMGTHLA"""
-    version_name = version.replace(".", "")
-    if folder:
-        folder = folder + "/hla_" + version_name
-    else:
-        folder = "hla_" + version_name
-    if Path(folder).exists():
-        return folder
-    runShell(
-        f"wget https://github.com/ANHIG/IMGTHLA/archive/refs/tags/v{version}-alpha.zip"
-    )
-    runShell(f"unzip v{version}-alpha.zip")
-    runShell(f"rm v{version}-alpha.zip")
-    runShell(f"mv IMGTHLA-{version}-alpha {folder}")
-    return folder
 
 
 def kouramiDownload(folder: str = "kourami") -> str:
@@ -540,12 +567,12 @@ def hisatBuild(folder: str, db_hla: str = "origin") -> str:
         output_name = folder + "/hla_3260"
     else:
         output_name = folder + "/" + Path(db_hla).name
-    Path(output_name).mkdir(exist_ok=True)
 
     if Path(f"{output_name}/hla.graph.8.ht2").exists():
         return output_name
 
     # link basic things
+    runShell(f"mkdir -p {output_name}")
     files_genome = glob(folder + "/genotype_genome*")
     for file_genome in files_genome:
         runShell(f"ln -s ../{Path(file_genome).name} {output_name}/")
@@ -651,6 +678,8 @@ def hisatRun(input_name: str, index: str) -> str:
     # MMI001_read_1_fq_gz-hla-extracted-1_fq.bam*
     name = Path(f"{input_name}.read.1.fq.gz").name
     runShell(f"mv {name.replace('.', '_')}* {output_name}/")
+    relink(f"{output_name}/{name}-hla-extracted-1.fq.gz", f"{output_name}.read.1.fq.gz")
+    relink(f"{output_name}/{name}-hla-extracted-2.fq.gz", f"{output_name}.read.2.fq.gz")
     return output_name
 
 
@@ -934,7 +963,7 @@ def hlalaRun(input_name: str, index: str) -> str:
     output_name = input_name + ".hlala_" + name2Single(index)
     if Path(f"{output_name}/data/hla/R1_bestguess_G.txt").exists():
         return output_name
-    Path(output_name).mkdir(exist_ok=True)
+    runShell(f"mkdir -p {output_name}")
     runDocker(
         "hlala",
         f"HLA-LA.pl --workingDir {output_name} --graph . --maxThreads {getThreads()} "
@@ -964,27 +993,6 @@ def hlalaReadResult(input_name: str) -> str:
     # print(df1)
     df1["name"] = input_name
     df1.to_csv(output_name + ".tsv", index=False, sep="\t")
-    return output_name
-
-
-def addUnmap(input_name: str) -> str:
-    """
-    HLA-LA has the step for extracting unmapped read
-    and it require at least one unmapped reads.
-    So I add this step to ensure HLA-LA doesn't fail.
-    """
-    output_name = input_name + ".addunmap"
-    if Path(f"{output_name}.bam").exists():
-        return output_name
-    view = runDocker(
-        "samtools", f"samtools view -h {input_name}.bam -o {output_name}.sam"
-    )
-    with open(output_name + ".sam", "a") as f:
-        fields = ["ggggg", 77, "*", 0, 0, "*", "*", 0, 0, "A", "A", "AS:i:0 XS:i:0"]
-        f.write("\t".join(map(str, fields)) + "\n")
-        fields[1] = 141
-        f.write("\t".join(map(str, fields)) + "\n")
-    bamSort(output_name, sam=True)
     return output_name
 
 
@@ -1147,9 +1155,9 @@ def graphtyperRun(input_name: str) -> str:
         f"{data['index']}/{data['gene']}.vcf.gz --region={data['chrom']}:{data['start']}-{data['end']} "
         f"--sam={data['input_name']}.bam --output={data['output_base']}",
     )
-    runShell(
-        f"ln -s ../{data['output_base']}/{data['chrom']}/{data['start']:09d}-{data['end']:09d}.vcf.gz "
-        f"      {output_name}.vcf.gz"
+    relink(
+        f"{data['output_base']}/{data['chrom']}/{data['start']:09d}-{data['end']:09d}.vcf.gz",
+        f"{output_name}.vcf.gz",
     )
     return output_name
 
@@ -1263,7 +1271,7 @@ def arcasBuild(folder: str, db_hla: str) -> str:
     output_name = f"{folder}/{Path(db_hla).name}"
     if Path(f"{output_name}/hla_partial.idx").exists():
         return output_name
-    Path(output_name).mkdir(exist_ok=True)
+    runShell(f"mkdir -p {output_name}")
     runShell(f"cp {db_hla}/hla.dat {output_name}/")
     runDocker(
         "arcas",
@@ -1287,12 +1295,8 @@ def arcasPreprocess(input_name: str) -> str:
         f"arcasHLA extract -t {getThreads()} -v " f"{input_name}.bam -o {output_name}",
     )
     name = Path(input_name).name
-    runShell(
-        f"ln -s ../{output_name}/{name}.extracted.1.fq.gz {output_name}.read.1.fq.gz"
-    )
-    runShell(
-        f"ln -s ../{output_name}/{name}.extracted.2.fq.gz {output_name}.read.2.fq.gz"
-    )
+    relink(f"{output_name}/{name}.extracted.1.fq.gz", f"{output_name}.read.1.fq.gz")
+    relink(f"{output_name}/{name}.extracted.2.fq.gz", f"{output_name}.read.2.fq.gz")
     return output_name
 
 
@@ -1934,15 +1938,6 @@ def athlatesBuild(folder: str, db_hla: str = "origin") -> str:
     return output_name
 
 
-def unzipFastq(input_name: str) -> str:
-    """unzip xxx.fq.gz to xx"""
-    if not Path(input_name + ".read.1.fq").exists():
-        runShell(f"gunzip -f --keep {input_name}.read.1.fq.gz")
-    if not Path(input_name + ".read.2.fq").exists():
-        runShell(f"gunzip -f --keep {input_name}.read.2.fq.gz")
-    return input_name
-
-
 def athlatesPreRun(input_name: str, index: str) -> str:
     """Run read mapping, and separate each athlates gene task"""
     output_name = input_name + ".athlates_" + name2Single(index) + ".novoalign"
@@ -2131,15 +2126,6 @@ def hlassignBuild(folder: str, db_hla: str = "origin") -> str:
     return output_name
 
 
-def mergeFastq(input_name: str) -> str:
-    """Unzip fastq and merge them"""
-    output_name = input_name + ".read_merge"
-    if Path(output_name + ".fq").exists():
-        return output_name
-    runShell(f"zcat {input_name}.read.*.fq.gz > {output_name}.fq")
-    return output_name
-
-
 def hlassignPreRun(input_name: str, index: str) -> str:
     """
     Split each gene for typing by hlassign.
@@ -2269,7 +2255,7 @@ def stcseqRun(input_name: str, index: str) -> str:
     if Path(output_name + "_report.txt").exists():
         return output_name
     runShell(f"mkdir -p {output_folder}")
-    runShell(f"cp {input_name}.fq {output_name}.fq")  # use ln -s is better
+    relink(f"{input_name}.fq", f"{output_name}.fq")
     runDocker("stcseq", f"step_1.sh {output_name} {index}")
     runDocker("stcseq", f"step_2.sh {output_name} {index}")
     runDocker(
@@ -2305,6 +2291,47 @@ def stcseqReadResult(input_name: str) -> str:
     return output_name
 
 
+# Python Result function/pipeline
+def allelesToTable(
+    alleles: Iterable[str], default_gene: list[str] = []
+) -> pd.DataFrame:
+    """
+    Turn list of alleles into our hla_result format.
+
+    Like so:
+    ```
+    gene	1	2	name
+    A	A*11:126:01:01	A*01:01:01:01	data/NA12878.hisat_hisat_hla_3430
+    B	B*08:01:01:45	B*56:01:01:03	data/NA12878.hisat_hisat_hla_3430
+    C	C*01:02:01:13	C*01:02:01:06	data/NA12878.hisat_hisat_hla_3430
+    ```
+    """
+    gene_allele: dict[str, list[str]] = defaultdict(list)
+    for gene in default_gene:
+        gene_allele[gene] = []
+
+    for allele in alleles:
+        gene = allele.split("*")[0]
+        gene_allele[gene].append(allele)
+
+    hla_list = []
+    for gene, alleles in gene_allele.items():
+        hla_list.append(
+            {
+                "gene": gene,
+                "1": "",
+                "2": "",
+            }
+        )
+        if len(alleles) > 0:
+            hla_list[-1]["1"] = alleles[0]
+        if len(alleles) > 1:
+            hla_list[-1]["2"] = alleles[1]
+    df = pd.DataFrame(hla_list)
+    print(df)
+    return df
+
+
 def renameResult(input_name: str, sample_name: str) -> str:
     """rename xx.*.hla_result.csv into xx.hla_result.{method}.csv"""
     suffix = input_name.split(sample_name)[1]
@@ -2312,8 +2339,7 @@ def renameResult(input_name: str, sample_name: str) -> str:
     suffix = suffix[1:].replace(".", "_").replace("/", "_")
     output_name = f"{sample_name}.hla_result.{suffix}"
     print(output_name)
-    # "../"  for data/
-    runShell(f"ln -sf ../{input_name}.tsv {output_name}.tsv")
+    relink(f"{input_name}.tsv", f"{output_name}.tsv")
     return sample_name + ".hla_result.{}"
 
 
@@ -2368,12 +2394,14 @@ def readArgument() -> argparse.Namespace:
             "hlaminer",
             "hlaprofiler",
             "hlascan",
+            "hlassign",
             "kourami",
             "optitype",
             # "phlat",  # require download requests
             "polysolver",
             "seq2hla",
             "soaphla",
+            "stcseq",
             "vbseq",
             "xhla",
         ],
@@ -2385,6 +2413,7 @@ def readArgument() -> argparse.Namespace:
     return args
 
 
+# main
 if __name__ == "__main__":
     args = readArgument()
     setThreads(args.thread)
@@ -2523,7 +2552,7 @@ if __name__ == "__main__":
     if "hisat" in args.tools:
         # maximum version 3.43.0
         db_hla_for_hisat = db_hla
-        if version != "origin" and tuple(map(int, version.split("."))) > (3, 43, 0):
+        if isVersionLarger(version, "3.43.0"):
             db_hla_for_hisat = downloadHLA("", version="3.43.0")
         folder = createFolder("", "hisat")
         folder = hisatDownload(folder)
@@ -2547,7 +2576,7 @@ if __name__ == "__main__":
     # it may cause some problems
     if "athlates" in args.tools:
         db_hla_for_athlates = db_hla
-        if version != "origin" and tuple(map(int, version.split("."))) > (3, 31, 0):
+        if isVersionLarger(version, "3.31.0"):
             db_hla_for_athlates = downloadHLA("", version="3.31.0")
         folder = createFolder("", "athlates")
         folder = athlatesDownload(folder)

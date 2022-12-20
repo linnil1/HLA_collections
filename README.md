@@ -54,8 +54,8 @@ Some tools are able to update the index to the latest IMGT-HLA version
 
 ## Requirements
 * python>=3.10
-* podman
-* Python package (by pip install)
+* podman (You can use docker if replace 'podman' in `pipeline.py` to 'docker')
+* Python package (by `pip install`)
     * pandas
 
 
@@ -79,7 +79,7 @@ python pipeline.py example
 ```
 
 
-## Example Output
+## Example Data folder
 ```
 data/NA12878.bwa_bwakit_hs37_fa.bam
 data/NA12878.bwa_bwakit_hs37_fa.bam.bai
@@ -190,6 +190,28 @@ data/NA12878.vbseq_vbseq_hla_3490.est.txt
 data/NA12878.vbseq_vbseq_hla_3490.sam
 ```
 
+## Example Result
+
+All the individual tool's result will be transform and merge into `{sample_name}.hla_result_merge.tsv`.
+
+e.g.  `data/NA12878.hla_result_merge.tsv`
+```
+    gene                 1                 2                                                                         name
+0      A     A*03:01:01:01     A*03:01:01:01            data/NA12878.bwa_bwakit_hs38_fa.graphtyper_graphtyper_hla_3230.{}
+0      A     A*01:01:01:01        A*11:01:01                                         data/NA12878.bwakit_bwakit_hs38DH_fa
+0      A     A*01:01:01:01        A*11:01:01                          data/NA12878.bwa_bwakit_hs37_fa.polysolver_hla_3100
+0      A  A*11:01:01:01:x1  A*01:01:01:01:x1  data/NA12878.bwa_bwakit_hs37_fa.vbseq_extract.vbseq_vbseq_hla_3310.est.call
+0      A     A*01:01:01:01     A*11:01:01:01                             data/NA12878.bwa_bwakit_hs38_fa.xhla_xhla_origin
+0      A        A*01:01:01        A*11:01:01           data/NA12878.bwakit_bwakit_hs38DH_fa.aln.sort.phlat_phlat_hla_3080
+0      A               NaN               NaN                    data/NA12878.athlates_athlates_hla_3430.novoalign.call.{}
+1      B          B*08:19N        B*56:01:01                                         data/NA12878.bwakit_bwakit_hs38DH_fa
+1      B        B*08:01:01        B*55:02:01                          data/NA12878.bwa_bwakit_hs37_fa.polysolver_hla_3100
+1      B     B*08:01:01:01  B*56:01:01:04:x1  data/NA12878.bwa_bwakit_hs37_fa.vbseq_extract.vbseq_vbseq_hla_3310.est.call
+1      B        B*08:01:01     B*56:01:01:01                             data/NA12878.bwa_bwakit_hs38_fa.xhla_xhla_origin
+1      B        B*08:01:01        B*56:01:01           data/NA12878.bwakit_bwakit_hs38DH_fa.aln.sort.phlat_phlat_hla_3080
+15     B        B*42:01:01     B*56:01:01:01            data/NA12878.bwa_bwakit_hs38_fa.graphtyper_graphtyper_hla_3230.{}
+```
+
 
 ## Notice
 I not sure all the index building processes are correct.
@@ -197,14 +219,18 @@ Some of them are undocumented, I roughly review the code and find out the way to
 
 Also, the result reading part is written in the easily way.
 In some cases, you should customize the code, add some features about
-filtering, thresholding on tool provided parameters (e.g. abundance).
+filtering, thresholding on tool provided parameters (e.g. abundance, quality).
+Maybe require fine-tunning the parameters in running code.
+
+Not every tools has the ability to limit the threads and memory consumption,
+you may test your data which has size as real data first.
 
 
 Some HLA tools are not considered as TODO:
 * HLA-PRG (The precessor of HLA-LA)
 * SNP2HLA (SNP array data as input)
 * HIBAG (SNP array)
-* HLAreporter (VERY BAD CODE, I don't have enough enthusiasm to fix them. https://github.com/jiaolongsun/hlareporter)
+* HLAreporter (Hard to run it, I don't have enough enthusiasm to fix them. https://github.com/jiaolongsun/hlareporter)
 * HLAssign2 (Just visualization update)
 
 
@@ -246,3 +272,5 @@ These tools require manully fills the download requests:
 MIT for the script in the repo.
 
 But you have to check the licenses in each tools.
+
+And don't forget to cite this repo.
