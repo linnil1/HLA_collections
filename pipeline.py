@@ -13,6 +13,11 @@ Design Pattern:
 * `samples = xxxReadResult(samples)           `  Read the result from the tool's output and save as tsv
 * `samples = renameResult(samples, samples_fq)`  Rename the hla result file for more organized
 
+Something, the tools types each HLA gene individually and takes long time.
+So I split it in `xxxPreRun`, and treat them as different task (`xxxRun`).
+* `samples = xxxPreRun(samples_fq, index)     `  Prepare the sample for typing each gene (Create scripts or json)
+* `samples = globAndRun(xxxRun, samples)      `  Select all the genes in the sample and run them
+
 If you want to update the version of tool but not have differnet version tool at the same time,
 just change the image name, folder name and xxx.dockerfile,
 Mostly it will work.
@@ -170,12 +175,15 @@ def checkAndBuildImage(folder: str, image: str = "") -> str:
 
 def globAndRun(func: Callable[[str], str], input_name: str) -> str:
     """This is a temporary solution if not using my pipelilne"""
-    for i in glob(input_name.replace(".{}", ".*.sh")):
+    for i in glob(input_name.replace("{}", "*") + ".json"):
+        func(i[:-5])
+    for i in glob(input_name.replace("{}", "*") + ".sh"):
         func(i[:-3])
     return input_name
 
 
 def addSuffix(input_name: str, suffix: str) -> str:
+    """Just add the suffix after input_name"""
     return input_name + suffix
 
 
@@ -695,9 +703,9 @@ def hlascanBuild(folder: str = "hlascan", db_hla: str = "origin") -> str:
 
 def hlascanPreRun(input_name: str, index: str) -> str:
     """Split the gene before hlascanRun"""
-    output_name = input_name + ".hlascan_" + name2Single(index)
-    if Path(f"{output_name}.HLA-C").exists():
-        return output_name + ".{}"
+    output_name = input_name + ".hlascan_" + name2Single(index) + ".gene.{}"
+    if Path(f"{output_name.format('TAP2')}.sh").exists():
+        return output_name
     genes = [
         "HLA-A",
         "HLA-B",
@@ -722,8 +730,9 @@ def hlascanPreRun(input_name: str, index: str) -> str:
         "TAP2",
     ]
     for gene in genes:
-        with open(f"{output_name}.{gene}.sh", "w") as f:
+        with open(f"{output_name.format(gene)}.sh", "w") as f:
             if Path(input_name + ".bam").exists():
+                f.write("set -ex\n")
                 if "hs37" in input_name:
                     version = "37"
                 elif "hs38" in input_name:
@@ -732,14 +741,14 @@ def hlascanPreRun(input_name: str, index: str) -> str:
                     raise ValueError("reference version cannot determine")
                 f.write(
                     f"hlascan -g {gene} -t {getThreads()} -d {index}.IMGT "
-                    f"-b {input_name}.bam -v {version} > {output_name}.{gene}.txt"
+                    f"-b {input_name}.bam -v {version} > {output_name.format(gene)}.txt"
                 )
             else:
                 f.write(
                     f"hlascan -g {gene} -t {getThreads()} -d {index}.IMGT "
-                    f"-l {input_name}.read.1.fq.gz -r {input_name}.read.2.fq.gz > {output_name}.{gene}.txt"
+                    f"-l {input_name}.read.1.fq.gz -r {input_name}.read.2.fq.gz > {output_name.format(gene)}.txt"
                 )
-    return output_name + ".{}"
+    return output_name
 
 
 def hlascanRun(input_name: str) -> str:
@@ -921,6 +930,7 @@ def hlalaBuild(folder: str = "hlala", db_hla: str = "origin") -> str:
 
 def hlalaRun(input_name: str, index: str) -> str:
     """https://github.com/DiltheyLab/HLA-LA"""
+    input_name = addUnmap(input_name)
     output_name = input_name + ".hlala_" + name2Single(index)
     if Path(f"{output_name}/data/hla/R1_bestguess_G.txt").exists():
         return output_name
@@ -1100,25 +1110,29 @@ def graphtyperBuild(
 
 def graphtyperPreRun(input_name: str, index: str) -> str:
     """Split genes before graphtyperRun"""
-    output_name = input_name + ".graphtyper_" + name2Single(index)
-    if Path(output_name + ".HLA_A.sh").exists():
-        return output_name + ".{}"
-    id = Path(output_name).name
+    output_base = input_name + ".graphtyper_" + name2Single(index)
+    output_name = output_base + ".gene.{}"
+    if Path(output_name.format("HLA_A") + ".json").exists():
+        return output_name
     df = pd.read_csv(
         f"{index}/regions.tsv", sep="\t", names=["chrom", "start", "end", "gene"]
     )
     for i in df.itertuples():
-        with open(f"{output_name}.{i.gene}.sh", "w") as f:
-            f.write(
-                f"graphtyper genotype_hla {index}/hs38.fa --verbose --threads={getThreads()} "
-                f"{index}/{i.gene}.vcf.gz --region={i.chrom}:{i.start}-{i.end} "
-                f"--sam={input_name}.bam --output={output_name}"
+        with open(f"{output_name.format(i.gene)}.json", "w") as f:
+            json.dump(
+                {
+                    "input_name": input_name,
+                    "output_base": output_base,
+                    "index": index,
+                    "output_name": output_name.format(i.gene),
+                    "gene": i.gene,
+                    "chrom": i.chrom,
+                    "start": i.start,
+                    "end": i.end,
+                },
+                f,
             )
-            f.write("\n")
-            f.write(
-                f"ln -s ../{output_name}/{i.chrom}/{i.start:09d}-{i.end:09d}.vcf.gz {output_name}.{i.gene}.vcf.gz"
-            )
-    return output_name + ".{}"
+    return output_name
 
 
 def graphtyperRun(input_name: str) -> str:
@@ -1126,7 +1140,17 @@ def graphtyperRun(input_name: str) -> str:
     output_name = input_name
     if Path(output_name + ".vcf.gz").exists():
         return output_name
-    runDocker("graphtyper", f"sh {input_name}.sh")
+    data = json.load(open(input_name + ".json"))
+    runDocker(
+        "graphtyper",
+        f"graphtyper genotype_hla {data['index']}/hs38.fa --verbose --threads={getThreads()} "
+        f"{data['index']}/{data['gene']}.vcf.gz --region={data['chrom']}:{data['start']}-{data['end']} "
+        f"--sam={data['input_name']}.bam --output={data['output_base']}",
+    )
+    runShell(
+        f"ln -s ../{data['output_base']}/{data['chrom']}/{data['start']:09d}-{data['end']:09d}.vcf.gz "
+        f"      {output_name}.vcf.gz"
+    )
     return output_name
 
 
@@ -1910,14 +1934,21 @@ def athlatesBuild(folder: str, db_hla: str = "origin") -> str:
     return output_name
 
 
+def unzipFastq(input_name: str) -> str:
+    """unzip xxx.fq.gz to xx"""
+    if not Path(input_name + ".read.1.fq").exists():
+        runShell(f"gunzip -f --keep {input_name}.read.1.fq.gz")
+    if not Path(input_name + ".read.2.fq").exists():
+        runShell(f"gunzip -f --keep {input_name}.read.2.fq.gz")
+    return input_name
+
+
 def athlatesPreRun(input_name: str, index: str) -> str:
     """Run read mapping, and separate each athlates gene task"""
     output_name = input_name + ".athlates_" + name2Single(index) + ".novoalign"
-    output_call = output_name + ".call.{}"
-    if Path(output_name + ".bam").exists():
+    output_call = output_name + ".gene.{}"
+    if Path(output_call.format("DQB1") + ".json").exists():
         return output_call
-    runShell(f"gunzip -f --keep {input_name}.read.1.fq.gz")
-    runShell(f"gunzip -f --keep {input_name}.read.2.fq.gz")
     runDocker(
         "athlates",
         "sh -c 'novoalign -o SAM -r Random -i PE 100-1400 -H -t 30 -n 100 "
@@ -1934,33 +1965,16 @@ def athlatesPreRun(input_name: str, index: str) -> str:
     # f"  -msa {index}/msa/{gene}_nuc.txt "
     # f"  -odir {parent} -oprf {name}.{gene}"
     for gene in ["A", "B", "C", "DRB1", "DQB1"]:
-        output_name1 = output_call.format(gene) + ".target"
-        output_name2 = output_call.format(gene) + ".nontarget"
-
-        with open(f"{output_call.format(gene)}.sh", "w") as f:
-            f.write("set -x\n")
-            f.write("set -o pipefail\n")
-            #  f.write("set -e\n")  # enable this will break most of samples
-            f.write(
-                f"samtools view -h -F 4 -L {index}/bed/hla.{gene}.bed {output_name}.bam -o {output_name1}.bam"
-            )
-            f.write("\n")
-            f.write(
-                f"samtools sort -n {output_name1}.bam -o {output_name1}.sortname.bam"
-            )
-            f.write("\n")
-            f.write(
-                f"samtools view -h -F 4 -L {index}/bed/hla.non-{gene}.bed {output_name}.bam -o {output_name2}.bam"
-            )
-            f.write("\n")
-            f.write(
-                f"samtools sort -n {output_name2}.bam -o {output_name2}.sortname.bam"
-            )
-            f.write("\n")
-            f.write(
-                f"typing -bam {output_name1}.sortname.bam -exlbam {output_name2}.sortname.bam "
-                f"       -msa {index}/msa/{gene}_nuc.txt -hd 2 "
-                f"       -o {output_call.format(gene)}"
+        with open(f"{output_call.format(gene)}.json", "w") as f:
+            json.dump(
+                {
+                    "input_name": input_name,
+                    "output_call": output_call,
+                    "output_name": output_name,
+                    "index": index,
+                    "gene": gene,
+                },
+                f,
             )
     return output_call
 
@@ -1970,8 +1984,35 @@ def athlatesRun(input_name: str) -> str:
     output_name = input_name
     if Path(input_name + ".typing.txt").exists():
         return output_name
+
+    data = json.load(open(input_name + ".json"))
+    index = data["index"]
+    gene = data["gene"]
+    output_name1 = data["output_call"].format(gene) + ".target"
+    output_name2 = data["output_call"].format(gene) + ".nontarget"
+    runDocker(
+        "samtools",
+        f"samtools view -h -F 4 -L {index}/bed/hla.{gene}.bed {data['output_name']}.bam -o {output_name1}.bam",
+    )
+    runDocker(
+        "samtools",
+        f"samtools sort -n {output_name1}.bam -o {output_name1}.sortname.bam",
+    )
+    runDocker(
+        "samtools",
+        f"samtools view -h -F 4 -L {index}/bed/hla.non-{gene}.bed {data['output_name']}.bam -o {output_name2}.bam",
+    )
+    runDocker(
+        "samtools",
+        f"samtools sort -n {output_name2}.bam -o {output_name2}.sortname.bam",
+    )
     try:
-        runDocker("athlates", f"bash {input_name}.sh")
+        runDocker(
+            "athlates",
+            f"typing -bam {output_name1}.sortname.bam -exlbam {output_name2}.sortname.bam "
+            f"       -msa {index}/msa/{gene}_nuc.txt -hd 2 "
+            f"       -o {output_name}",
+        )
     except subprocess.CalledProcessError:
         pass
     return output_name
@@ -2090,6 +2131,15 @@ def hlassignBuild(folder: str, db_hla: str = "origin") -> str:
     return output_name
 
 
+def mergeFastq(input_name: str) -> str:
+    """Unzip fastq and merge them"""
+    output_name = input_name + ".read_merge"
+    if Path(output_name + ".fq").exists():
+        return output_name
+    runShell(f"zcat {input_name}.read.*.fq.gz > {output_name}.fq")
+    return output_name
+
+
 def hlassignPreRun(input_name: str, index: str) -> str:
     """
     Split each gene for typing by hlassign.
@@ -2101,54 +2151,63 @@ def hlassignPreRun(input_name: str, index: str) -> str:
     if Path(output_name_pattern.format("C") + ".sh").exists():
         return output_name_pattern
 
-    runShell(f"zcat {input_name}.read.*.fq.gz > {output_name_base}.fq")
     # get read length by read one line in readfile
-    read_f = open(output_name_base + ".fq")
+    read_f = open(input_name + ".fq")
     next(read_f)  # at least one read exists
     read = next(read_f)
     read_length = len(read.strip())
 
-    # for gene in ["A", "B", "C"]:
-    for gene in ["B"]:
+    for gene in ["A", "B", "C"]:
         output_name = output_name_pattern.format(gene)
-        if Path(output_name + ".sh").exists():
-            continue
-        with open(output_name + ".sh", "w") as f:
-            f.write("set -x\n")
-            f.write("set -o pipefail\n")
-            f.write(
-                f"prefilterhlareads --Ref {index}/{gene}_gen.hlp.txt "
-                f"  --read_length {read_length} --min_alignment 30 "
-                f"  --fastq {output_name_base}.fq "
-                f"  --on-target {output_name}.target.fq --off-target {output_name}.offtarget.fq"
+        with open(output_name + ".json", "w") as f:
+            json.dump(
+                {
+                    "input_name": input_name,
+                    "index": index,
+                    "gene": gene,
+                    "read_length": read_length,
+                },
+                f,
             )
-            output_name = output_name + ".target"
-            runShell(f"mkdir -p {output_name}/{Path(output_name).parent}")
-            # Usage said cd {output_name}
-            # I don't like it
-            parent_str = "../" * len(Path(output_name).parent.parents)
-            runShell(f"ln -s ./{parent_str} {output_name}/{output_name}")
-            f.write("\n")
-            f.write(f"sed -n '1~4s/^@/>/p;2~4p' {output_name}.fq > {output_name}.fa")
-            f.write("\n")
-            f.write(
-                f"nextcallhla --cDNA {index}/{gene}_nuc.txt --gDNA {index}/{gene}_gen.txt"
-                f"  --bias-alleles {index}/incomplete_alleles.txt "
-                f"  --amb-table {index}/ambiguity_table.txt "
-                f"  --read-length {read_length}"
-                f"  --reads {output_name}.fa "
-                f"  --out {output_name}.result.txt "
-                f"  --scratch {output_name} --outPic {output_name} "
-            )
+
     return output_name_pattern
 
 
 def hlassignRun(input_name: str) -> str:
     """Each task takes very long time"""
-    if Path(input_name + ".result.txt").exists():
-        return input_name
-    runDocker("hlassign", f"bash {input_name}.sh")
-    return input_name
+    output_name = input_name
+    if Path(output_name + ".target.result.txt").exists():
+        return output_name
+
+    data = json.load(open(input_name + ".json"))
+    gene = data["gene"]
+    index = data["index"]
+    runDocker(
+        "hlassign",
+        f"prefilterhlareads --Ref {index}/{gene}_gen.hlp.txt "
+        f"  --read_length {data['read_length']} --min_alignment 30 "
+        f"  --fastq {data['input_name']}.fq "
+        f"  --on-target {output_name}.target.fq --off-target {output_name}.offtarget.fq",
+    )
+    output_name = output_name + ".target"
+
+    # Usage require changedir to {output_name}
+    # I don't like it
+    runShell(f"mkdir -p {output_name}/{Path(output_name).parent}")
+    parent_str = "../" * len(Path(output_name).parent.parents)
+    runShell(f"ln -s ./{parent_str} {output_name}/{output_name}")
+    runShell(f"sed -n '1~4s/^@/>/p;2~4p' {output_name}.fq > {output_name}.fa")
+    runDocker(
+        "hlassign",
+        f"nextcallhla --cDNA {index}/{gene}_nuc.txt --gDNA {index}/{gene}_gen.txt"
+        f"  --bias-alleles {index}/incomplete_alleles.txt "
+        f"  --amb-table {index}/ambiguity_table.txt "
+        f"  --read-length {data['read_length']}"
+        f"  --reads {output_name}.fa "
+        f"  --out {output_name}.result.txt "
+        f"  --scratch {output_name} --outPic {output_name} ",
+    )
+    return output_name
 
 
 def hlassignReadResult(input_name: str) -> str:
@@ -2165,7 +2224,7 @@ def hlassignReadResult(input_name: str) -> str:
     if Path(f"{output_name}.tsv").exists():
         return output_name
     alleles = []
-    for f in glob(f"{input_name.format('*')}.result.txt"):
+    for f in glob(f"{input_name.format('*')}.target.result.txt"):
         skip = True
         for i in open(f):
             if "Result" in i:
@@ -2204,13 +2263,13 @@ def stcseqBuild(folder: str, db_hla: str = "origin") -> str:
 
 
 def stcseqRun(input_name: str, index: str) -> str:
-    """ "https://ngdc.cncb.ac.cn/biocode/tools/BT007068/manual"""
+    """https://ngdc.cncb.ac.cn/biocode/tools/BT007068/manual"""
     output_folder = input_name + ".stcseq_" + name2Single(index)
     output_name = output_folder + "/data"
     if Path(output_name + "_report.txt").exists():
         return output_name
     runShell(f"mkdir -p {output_folder}")
-    runShell(f"zcat {input_name}.read.*.fq.gz > {output_name}.fq")
+    runShell(f"cp {input_name}.fq {output_name}.fq")  # use ln -s is better
     runDocker("stcseq", f"step_1.sh {output_name} {index}")
     runDocker("stcseq", f"step_2.sh {output_name} {index}")
     runDocker(
@@ -2237,6 +2296,7 @@ def stcseqReadResult(input_name: str) -> str:
     if Path(f"{output_name}.tsv").exists():
         return output_name
     txt = pd.read_csv(f"{input_name}_report.txt", sep="\t", comment="#")
+    txt = txt[txt["Quality"] == "PASS"]
     alleles_pair = txt["Genotype"]
     alleles = [j for i in alleles_pair for j in i.split(",")]
     df = allelesToTable(alleles, default_gene=["A", "B", "C"])
@@ -2424,8 +2484,7 @@ if __name__ == "__main__":
     if "hlala" in args.tools:
         folder = createFolder("", "hlala")
         index = hlalaBuild(folder)
-        samples = addUnmap(samples_hs38dh)
-        samples = hlalaRun(samples, index)
+        samples = hlalaRun(samples_hs38dh, index)
         samples = hlalaReadResult(samples)
         samples = renameResult(samples, samples_fq)
 
@@ -2478,7 +2537,8 @@ if __name__ == "__main__":
         folder = createFolder("", "hlassign")
         folder = checkAndBuildImage(folder)
         index = hlassignBuild(folder, db_hla)
-        samples = hlassignPreRun(samples_fq, index)
+        samples = mergeFastq(samples_fq)
+        samples = hlassignPreRun(samples, index)
         samples = globAndRun(hlassignRun, samples)
         samples = hlassignReadResult(samples)
 
@@ -2493,7 +2553,8 @@ if __name__ == "__main__":
         folder = athlatesDownload(folder)
         folder = checkAndBuildImage(folder)
         index = athlatesBuild(folder, db_hla_for_athlates)
-        samples = athlatesPreRun(samples_fq, index)
+        samples = unzipFastq(samples_fq)
+        samples = athlatesPreRun(samples, index)
         samples = globAndRun(athlatesRun, samples)
         samples = athlatesReadResult(samples)
         samples = renameResult(samples, samples_fq)
@@ -2551,7 +2612,8 @@ if __name__ == "__main__":
         folder = createFolder("", "stcseq")
         folder = checkAndBuildImage(folder)
         index = stcseqBuild(folder, db_hla)
-        samples = stcseqRun(samples_fq, index)
+        samples = mergeFastq(samples_fq)
+        samples = stcseqRun(samples, index)
         samples = stcseqReadResult(samples)
         samples = renameResult(samples, samples_fq)
 

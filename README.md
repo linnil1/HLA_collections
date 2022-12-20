@@ -68,7 +68,8 @@ mkdir -p data
 # copy your fastq to here
 cp xxxx data/cohort_name.xxxxx.read.1.fq.gz
 cp xxxx data/cohort_name.xxxxx.read.2.fq.gz
-python pipeline.py data/cohort_name.xxxxx --version 3.49.0  # run one sample
+python pipeline.py data/cohort_name.xxxxx --tools hisat                   # select hisat-genotyping to typing your sample
+python pipeline.py data/cohort_name.xxxxx --tools hisat --version 3.49.0  # select and using IMGT/HLA 3.49.0 index if available.
 
 # see more options via
 python pipeline.py --help
