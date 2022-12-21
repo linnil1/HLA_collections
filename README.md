@@ -30,7 +30,7 @@ Some tools are able to update the index to the latest IMGT-HLA version
 (https://www.ebi.ac.uk/ipd/imgt/hla/)
 
 * arcasHLA (Default 3.24.0 -> Current 3.49.0)
-* ATHLATES (Provided 3.9.0 -> Max 3.31.0)
+* ATHLATES (Provided 3.9.0 -> Current 3.49.0※)
 * bwakit (Cannot change)
 * graphtyper (Provided 3.23.0, cannot change)
 * HISAT-genotype (Provided 3.26.0 -> Max 3.43.0)
@@ -51,10 +51,11 @@ Some tools are able to update the index to the latest IMGT-HLA version
 * HLA-VBSeq (Provided 3.31.0 -> Current 3.49.0)
 * xHLA=34221ea (Unknwon -> Current 3.49.0)
 
+※ Temporary fixed by linnil1, require more tuning
 
 ## Requirements
 * python>=3.10
-* podman (You can use docker if replace 'podman' in `pipeline.py` to 'docker')
+* podman (You can use docker if replace 'podman' in `resources.py` to 'docker')
 * Python package (by `pip install`)
     * pandas
 

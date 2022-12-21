@@ -78,6 +78,42 @@ def globAndRun(func: Callable[[str], str], input_name: str) -> str:
     return input_name
 
 
+def removeMsaNucTail(nuc_ori: str, nuc_new: str) -> None:
+    """
+    Remove the tailing in alignments/xx_nuc.txt
+
+    i.e. remove this
+    ```
+    cDNA              1098
+    AA codon          342
+                      |
+    A*03:437Q         GACAG CTGCC TTGTG TGGGA CTGA
+    ```
+
+    A proper way to do this is read it from pyHLAMSA and
+    export the same txt format.
+    """
+    with open(nuc_ori) as f_ori:
+        txt = f_ori.read()
+        txt_arr = txt.split(" cDNA")
+        txt_new = txt_arr[0]
+        num_line = txt_arr[0].count("\n")
+        for i in txt_arr[1:]:
+            if i.count("\n") < num_line - 10:
+                print("Remove")
+                print(i)
+                txt_new += (
+                    "Please see http://hla.alleles.org/terms.html for terms of use.\n\n"
+                )
+                break
+            num_line = i.count("\n")
+            txt_new += " cDNA" + i
+    # because nuc_ori and nuc_new can be the same file
+    # so open the read first and then write
+    with open(nuc_new, "w") as f_new:
+        f_new.write(txt_new)
+
+
 # utility pipeline
 def createFolder(base_folder: str = "", name: str = "") -> str:
     """Create folder at parent/base_folder"""
@@ -1811,7 +1847,14 @@ def athlatesDownload(folder: str) -> str:
 
 
 def athlatesBuild(folder: str, db_hla: str = "origin") -> str:
-    """https://www.broadinstitute.org/viral-genomics/athlates"""
+    """
+    https://www.broadinstitute.org/viral-genomics/athlates
+
+    The index cannot be updated because the tailing sequences in MSA
+    and MSA header problem, I simply fix it, actually some
+    sequences (`A*03:437Q`, `B*13:123Q`, `C*04:09N`) are clipped
+    at the end of files.
+    """
     if db_hla == "origin":
         output_name = f"{folder}/hla_3090"  # written in A_nuc.txt
     else:
@@ -1826,7 +1869,15 @@ def athlatesBuild(folder: str, db_hla: str = "origin") -> str:
     else:
         runShell(f"mkdir -p {output_name}")
         runShell(f"cp -r {db_hla}/alignments {output_name}/msa")
+        runShell(f"ln -s DRB_nuc.txt {output_name}/msa/DRB1_nuc.txt")
         runShell(f"cp {db_hla}/hla_gen.fasta {output_name}/")
+        for gene in ["A", "B", "C", "DRB1", "DQB1"]:
+            # Solve: err: process_block: block size != refs size
+            removeMsaNucTail(
+                f"{output_name}/msa/{gene}_nuc.txt", f"{output_name}/msa/{gene}_nuc.txt"
+            )
+            # In their code, only first 5 row are ignored
+            runShell(f"sed -i '5d' {output_name}/msa/{gene}_nuc.txt")
         runDocker(
             "athlates",
             f"perl /usr/local/bin/hla_ref_clean.pl"
@@ -1994,16 +2045,9 @@ def hlassignBuild(folder: str, db_hla: str = "origin") -> str:
 
         # modifiy nuc
         for gene in ["A", "B", "C", "DRB1", "DPA1", "DPB1", "DQA1", "DQB1"]:
-            txt = open(f"{output_name}/{gene}_nuc.txt").read()
-            txt_arr = txt.split("cDNA")
-            txt_arr_new = [txt_arr[0]]
-            num_line = txt_arr[0].count("\n")
-            for i in txt_arr[1:]:
-                if i.count("\n") < num_line - 10:
-                    continue
-                num_line = i.count("\n")
-                txt_arr_new.append(i)
-            open(f"{output_name}/{gene}_nuc.txt", "w").write("cDNA".join(txt_arr_new))
+            removeMsaNucTail(
+                f"{output_name}/{gene}_nuc.txt", f"{output_name}/{gene}_nuc.txt"
+            )
 
         # I don't know how the generated
         runShell(f"cp {folder}/pilot_source_code/incomplete_alleles.txt {output_name}")
@@ -2488,12 +2532,10 @@ if __name__ == "__main__":
     # it may cause some problems
     if "athlates" in args.tools:
         db_hla_for_athlates = db_hla
-        if isVersionLarger(version, "3.31.0"):
-            db_hla_for_athlates = downloadHLA("", version="3.31.0")
         folder = createFolder("", "athlates")
         folder = athlatesDownload(folder)
         folder = checkAndBuildImage(folder)
-        index = athlatesBuild(folder, db_hla_for_athlates)
+        index = athlatesBuild(folder, db_hla)
         samples = unzipFastq(samples_fq)
         samples = athlatesPreRun(samples, index)
         samples = globAndRun(athlatesRun, samples)
