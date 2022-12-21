@@ -61,7 +61,15 @@ Some tools are able to update the index to the latest IMGT-HLA version
 
 ## Usage
 
-Our pipeline started from fastq (pair-end reads).
+Our pipeline starts from fastq (pair-end reads),
+
+and run the HLA typing process.
+
+The tool installation is included in dokcer image from Dockerfile or online registry.
+
+The tool index will be downloaded and created by our pipeline when the index is not existed.
+
+All the individual tool's result will be transformed and merged into `{sample_name}.hla_result_merge.tsv`.
 
 ``` bash
 mkdir -p data
@@ -191,8 +199,6 @@ data/NA12878.vbseq_vbseq_hla_3490.sam
 ```
 
 ## Example Result
-
-All the individual tool's result will be transform and merge into `{sample_name}.hla_result_merge.tsv`.
 
 e.g.  `data/NA12878.hla_result_merge.tsv`
 ```

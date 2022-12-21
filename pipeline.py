@@ -1,5 +1,5 @@
 """
-File: pipelilne.py of HLA_collections
+File: pipeline.py of HLA_collections
 Author: linnil1
 Description: Build, running HLA tools and read parsing are all written in this script.
 
@@ -31,161 +31,15 @@ from collections import defaultdict
 import re
 import gzip
 import json
-import uuid
 import argparse
 import subprocess
 
 import pandas as pd
 
-
-# resource part
-resources: dict[str, int] = {  # per sample
-    "threads": 4,
-    "memory": 7,  # unit: G
-}
-
-images = {
-    # gerneral tools
-    "bwa": "quay.io/biocontainers/bwa:0.7.17--hed695b0_7",
-    "java": "docker.io/library/openjdk:11-jdk",
-    "samtools": "quay.io/biocontainers/samtools:1.15.1--h1170115_0",
-    # tools
-    "arcas": "quay.io/biocontainers/arcas-hla:0.5.0--hdfd78af_1",
-    "athlates": "localhost/linnil1/athlates:2014_04_26",
-    "bwakit": "quay.io/biocontainers/bwakit:0.7.17.dev1--hdfd78af_1",
-    "graphtyper": "localhost/linnil1/graphtyper:2.7.5",
-    "hisat": "localhost/linnil1/hisat2:1.3.3",
-    "hisat2": "quay.io/biocontainers/hisat2:2.2.1--h87f3376_4",
-    "hlaforest": "localhost/linnil1/hlaforest",
-    "hlahd": "localhost/linnil1/hlahd:1.5.0",
-    "hlala": "quay.io/biocontainers/hla-la:1.0.3--hd03093a_0",
-    "hlaminer": "localhost/linnil1/hlaminer:1.4",
-    "hlaprofiler": "quay.io/biocontainers/hlaprofiler:1.0.5--hdfd78af_3",
-    "hlascan": "localhost/linnil1/hlascan:2.1.4",
-    "hlassign": "localhost/linnil1/hlassign",
-    "kourami_preprocess": "localhost/linnil1/kourami_preprocess",
-    "optitype": "quay.io/biocontainers/optitype:1.3.5--hdfd78af_2",
-    "polysolver": "docker.io/sachet/polysolver:v4",
-    "seq2hla": "localhost/linnil1/seq2hla:2.2--2",
-    "soaphla": "localhost/linnil1/soaphla:1.0.0-pl526_3",
-    "stcseq": "localhost/linnil1/stcseq:v1.0",
-    "vbseq": "localhost/linnil1/vbseq:20181122",
-    "xhla": "localhost/linnil1/xhla",
-    "phlat_download": "docker.io/mgibio/phlat:1.1_withindex",
-    "phlat": "docker.io/mgibio/phlat:1.1",
-}
-
-folders = {
-    "arcas": "arcas",
-    "athlates": "athlates",
-    "bwakit": "bwakit",
-    "graphtyper": "graphtyper",
-    "hisat": "hisat",
-    "hlaforest": "hlaforest",
-    "hlahd": "hlahd",
-    "hlala": "hlala",
-    "hlaminer": "hlaminer",
-    "hlaprofiler": "hlaprofiler",
-    "hlascan": "hlascan",
-    "hlassign": "hlassign",
-    "kourami": "kourami",
-    "optitype": "optitype",
-    "phlat": "phlat",
-    "seq2hla": "seq2hla",
-    "soaphla": "soaphla",
-    "stcseq": "stcseq",
-    "vbseq": "vbseq",
-    "xhla": "xhla",
-}
+from resources import *
 
 
-def getThreads() -> int:
-    """Get number of available threads"""
-    return resources["threads"]
-
-
-def setThreads(threads: int) -> None:
-    """Set number of available threads"""
-    global resources
-    resources["threads"] = threads
-
-
-def createFolder(base_folder: str = "", name: str = "") -> str:
-    """Create folder at parent/base_folder"""
-    output_name = base_folder + folders[name]
-    Path(output_name).mkdir(exist_ok=True)
-    return output_name
-
-
-def runDocker(
-    image: str, cmd: str, opts: str = "", chdir: str = ""
-) -> subprocess.CompletedProcess[str]:
-    """run docker container"""
-    image = images.get(image, image)
-    random_name = str(uuid.uuid4()).split("-", 1)[0]
-    cmd_all = (
-        f"podman run -it --rm -u root -w /app/{chdir} -v $PWD:/app "
-        f"--name {random_name} "
-        f"{opts} {image} {cmd}"
-    )
-    proc = runShell(cmd_all)
-    return proc
-
-
-def runShell(cmd: str) -> subprocess.CompletedProcess[str]:
-    """Run command line"""
-    print(cmd)
-    proc = subprocess.run(
-        cmd,
-        shell=True,
-        check=True,
-        universal_newlines=True,
-    )
-    return proc
-
-
-def buildImage(dockerfile: str, image: str, args: dict[str, str] = {}) -> None:
-    """build docker image"""
-    txt_arg = ""
-    for key, value in args.items():
-        txt_arg += f" --build-arg {key}={value} "
-    runShell(f"podman build . -f {dockerfile} -t {image} {txt_arg}")
-
-
-def checkImage(image: str) -> bool:
-    """check image exists"""
-    try:
-        runShell(f"sh -c 'if [ ! $(podman image ls {image} -q) ]; then exit 1; fi'")
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
-def checkAndBuildImage(folder: str, image: str = "") -> str:
-    """Check image exists. If not existed, built it"""
-    if not image:
-        image = Path(folder).name
-    if not checkImage(images[image]):
-        buildImage(f"{image}.dockerfile", images[image], args={"folder": folder})
-    return folder
-
-
-# pipeline control part
-def globAndRun(func: Callable[[str], str], input_name: str) -> str:
-    """This is a temporary solution if not using my pipelilne"""
-    for i in glob(input_name.replace("{}", "*") + ".json"):
-        func(i[:-5])
-    for i in glob(input_name.replace("{}", "*") + ".sh"):
-        func(i[:-3])
-    return input_name
-
-
-def addSuffix(input_name: str, suffix: str) -> str:
-    """Just add the suffix after input_name"""
-    return input_name + suffix
-
-
-# utility pipeline/function
+# utility function
 def name2Single(name: str) -> str:
     """Trun everything special character ('./') into '_'"""
     return name.replace("/", "_").replace(".", "_")
@@ -204,6 +58,37 @@ def relink(src: str, dst: str) -> None:
     else:
         parent_folder = "../" * (len(Path(dst).parents) - 1)
         runShell(f"ln -fs {parent_folder}{src} {dst}")
+
+
+def isVersionLarger(version_cur: str, version_max: str) -> bool:
+    """Check version in version_cur is larger than version_max"""
+    if version_cur == "origin":
+        return False
+    version_cur_tuple = tuple(map(int, version_cur.split(".")))
+    version_max_tuple = tuple(map(int, version_max.split(".")))
+    return version_cur_tuple > version_max_tuple
+
+
+def globAndRun(func: Callable[[str], str], input_name: str) -> str:
+    """This is a temporary solution if not using my pipelilne"""
+    for i in glob(input_name.replace("{}", "*") + ".json"):
+        func(i[:-5])
+    for i in glob(input_name.replace("{}", "*") + ".sh"):
+        func(i[:-3])
+    return input_name
+
+
+# utility pipeline
+def createFolder(base_folder: str = "", name: str = "") -> str:
+    """Create folder at parent/base_folder"""
+    output_name = base_folder + folders[name]
+    Path(output_name).mkdir(exist_ok=True)
+    return output_name
+
+
+def addSuffix(input_name: str, suffix: str) -> str:
+    """Just add the suffix after input_name"""
+    return input_name + suffix
 
 
 def bamSort(input_name: str, sam: bool = False) -> str:
@@ -238,12 +123,14 @@ def bam2Fastq(input_name: str) -> str:
         return output_name
     runDocker(
         "samtools",
-        f"samtools sort  -@{getThreads()} -n {input_name}.bam -o {output_name}.sortn.bam",
+        f"samtools sort  -@{getThreads()}"
+        f"  -n {input_name}.bam -o {output_name}.sortn.bam",
     )
     runDocker(
         "samtools",
-        f"samtools fastq -@{getThreads()} -1 {output_name}.read.1.fq.gz -2 {output_name}.read.2.fq.gz "
-        f"                                -0 /dev/null -s /dev/null -n {output_name}.sortn.bam",
+        f"samtools fastq -@{getThreads()}"
+        f"  -1 {output_name}.read.1.fq.gz -2 {output_name}.read.2.fq.gz "
+        f"  -0 /dev/null -s /dev/null -n {output_name}.sortn.bam",
     )
     return output_name
 
@@ -263,8 +150,8 @@ def bwaRun(input_name: str, index: str) -> str:
         return output_name
     runDocker(
         "bwa",
-        f"bwa mem -t {getThreads()} {index} "
-        f"{input_name}.read.1.fq.gz {input_name}.read.2.fq.gz -o {output_name}.sam ",
+        f"bwa mem -t {getThreads()} {index}"
+        f"  {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz -o {output_name}.sam",
     )
     output_name = bamSort(output_name, sam=True)
     return output_name
@@ -326,7 +213,8 @@ def downloadSample(folder: str = "data") -> str:
         return name
     runShell("mkdir -p data")
     runShell(
-        f"wget 'https://www.dropbox.com/s/xr99u3vqaimk4vo/NA12878.mini.cram?dl=0' -O {name}.download.cram"
+        "wget 'https://www.dropbox.com/s/xr99u3vqaimk4vo/NA12878.mini.cram?dl=0'"
+        f" -O {name}.download.cram"
     )
     runDocker(
         "samtools",
@@ -355,14 +243,6 @@ def downloadHLA(folder: str = "", version: str = "3.49.0") -> str:
     return folder
 
 
-def isVersionLarger(version_cur: str, version_max: str) -> bool:
-    if version_cur == "origin":
-        return False
-    version_cur_tuple = tuple(map(int, version_cur.split(".")))
-    version_max_tuple = tuple(map(int, version_max.split(".")))
-    return version_cur_tuple > version_max_tuple
-
-
 # Tool pipeline
 def bwakitRun(input_name: str, index: str) -> str:
     """https://github.com/lh3/bwa/tree/master/bwakit"""
@@ -371,8 +251,10 @@ def bwakitRun(input_name: str, index: str) -> str:
         return output_name
     runDocker(
         "bwakit",
-        f"run-bwamem -t {getThreads()} -H -o {output_name} -R '@RG\\tID:{input_name}\\tSM:{input_name}' "
-        f"{index} {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz > {output_name}.sh",
+        f"run-bwamem -t {getThreads()} -H -o {output_name}"
+        f"  -R '@RG\\tID:{input_name}\\tSM:{input_name}'"
+        f"  {index} {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz"
+        f"  > {output_name}.sh",
     )
     # BUG: dos format to linux format
     runShell(f"sed -i 's/\\r$//g' {output_name}.sh")
@@ -385,7 +267,7 @@ def bwakitReadResult(input_name: str) -> str:
     Turn bwakit HLA result format into our hla_result format
 
     bwakit HLA format:
-    data/MMI001.bwakit_bwakit_hs38DH_fa.hla	HLA-A*02:07:01	HLA-A*11:01:01	0	0	6
+    data/MMI001.bwakit_bwakit_hs38DH_fa.hla	HLA-A*02:07:01	HLA-A*11:01:01...
     """
     output_name = input_name + ".hla.top.hla_result"
     if Path(output_name + ".tsv").exists():
@@ -410,8 +292,7 @@ def kouramiDownload(folder: str = "kourami") -> str:
     if Path(folder + "/resources/hs38NoAltDH.fa").exists():
         return folder
     runShell(
-        "wget https://github.com/Kingsford-Group/kourami/releases/download/v0.9.6/kourami-0.9.6_bin.zip "
-        f" -P {folder}"
+        f"wget https://github.com/Kingsford-Group/kourami/releases/download/v0.9.6/kourami-0.9.6_bin.zip -P {folder}"
     )
     runShell(f"unzip {folder}/kourami-0.9.6_bin.zip -d {folder}")
     runShell(f"mv {folder}/kourami-0.9.6/* {folder}")
@@ -454,11 +335,13 @@ def kouramiBuild(folder: str, db_hla: str = "origin") -> str:
         )
         runDocker(
             "java",
-            f"java -cp {folder}/build/Kourami.jar FormatIMGT {folder}/tmp_alignments/ . {output_name}",
+            f"java -cp {folder}/build/Kourami.jar FormatIMGT"
+            f"  {folder}/tmp_alignments/ . {output_name}",
         )
         # runShell(f"rm -r {folder}/tmp_alignments")
         runShell(
-            f"cat {output_name}/*.merged.fa {folder}/resources/HLA_decoys.fa | gzip > {output_name}/All_FINAL_with_Decoy.fa.gz"
+            f"cat {output_name}/*.merged.fa {folder}/resources/HLA_decoys.fa"
+            f"  | gzip > {output_name}/All_FINAL_with_Decoy.fa.gz"
         )
         runShell(f"cp {db_hla}/wmda/hla_nom_g.txt {output_name}")
     bwaIndex(output_name + "/All_FINAL_with_Decoy.fa.gz")
@@ -474,10 +357,9 @@ def kouramiPreprocess(input_name: str, index: str, kourami_folder: str = "") -> 
         kourami_folder = index + "/.."
     runDocker(
         "kourami_preprocess",
-        f"bash {kourami_folder}/scripts/alignAndExtract_hs38DH.sh "
-        f"-d {index} -r {kourami_folder}/resources/hs38NoAltDH.fa "
-        f"{output_name}. "
-        f"{input_name}.bam ",
+        f"bash {kourami_folder}/scripts/alignAndExtract_hs38DH.sh"
+        f"  -d {index} -r {kourami_folder}/resources/hs38NoAltDH.fa"
+        f"  {output_name}. {input_name}.bam ",
     )
     return output_name
 
@@ -494,14 +376,15 @@ def kouramiRun(input_name: str, index: str, kourami_folder: str = "") -> str:
         kourami_folder = index + "/.."
     runDocker(
         "kourami_preprocess",
-        f"bwa mem -t {getThreads()} {index}/All_FINAL_with_Decoy.fa.gz "
-        f"{input_name}._extract_1.fq.gz {input_name}._extract_2.fq.gz -o {panel_name}.sam ",
+        f"bwa mem -t {getThreads()} {index}/All_FINAL_with_Decoy.fa.gz"
+        f"  {input_name}._extract_1.fq.gz {input_name}._extract_2.fq.gz"
+        f"  -o {panel_name}.sam",
     )
     bamSort(panel_name, sam=True)
     runDocker(
         "java",
-        f"java -jar {kourami_folder}/build/Kourami.jar -d {index} "
-        f"{panel_name}.bam -o {output_name} ",
+        f"java -jar {kourami_folder}/build/Kourami.jar -d {index}"
+        f"  {panel_name}.bam -o {output_name}",
     )
     return output_name
 
@@ -537,7 +420,7 @@ def kouramiReadResult(input_name: str) -> str:
 
 
 def hisatDownload(folder: str = "hisat") -> str:
-    """Download genome databse. see hisatgenotype_modules/hisatgenotype_typing_common.py"""
+    """Download genome databse. See hisatgenotype/set.sh"""
     if Path(f"{folder}/genome.fa.fai").exists():
         return folder
     # download_genotype_genome in hisatgenotype_modules/hisatgenotype_typing_common.py
@@ -583,7 +466,8 @@ def hisatBuild(folder: str, db_hla: str = "origin") -> str:
     # download HLA related things
     if db_hla == "origin":
         runShell(
-            f"git clone https://github.com/DaehwanKimLab/hisatgenotype_db {output_name}/hisatgenotype_db"
+            "git clone https://github.com/DaehwanKimLab/hisatgenotype_db"
+            f" {output_name}/hisatgenotype_db"
         )
         runShell(f"cd {output_name}/hisatgenotype_db && git checkout d5d9b80")
     else:
@@ -626,10 +510,12 @@ def hisatBuild(folder: str, db_hla: str = "origin") -> str:
         runShell(f"cp {db_hla}/hla.dat {output_name}/hisatgenotype_db/HLA")
         for gene in genes:
             runShell(
-                f"cp -r {db_hla}/fasta/{gene}*  {output_name}/hisatgenotype_db/HLA/fasta/"
+                f"cp -r {db_hla}/fasta/{gene}*"
+                f"      {output_name}/hisatgenotype_db/HLA/fasta/"
             )
             runShell(
-                f"cp -r {db_hla}/msf/{gene}*  {output_name}/hisatgenotype_db/HLA/msf/"
+                f"cp -r {db_hla}/msf/{gene}*"
+                f"      {output_name}/hisatgenotype_db/HLA/msf/"
             )
 
     # Build the index by running one example
@@ -651,7 +537,7 @@ CC1CGGGGGGGGGGJGJJJJJJJGGJJGJGGJGGJGCJJJJGJJJJJJGGGGJ=GJJCGJGGGGJ=G=GGG==GGGCGGG
         "hisat",
         f"hisatgenotype -z {output_name} --threads {getThreads()} "
         f"--base hla --out-dir /tmp -v -U {folder}/read.fq",
-        opts=f"-v {Path(folder).absolute()}/settings.json:/opt/hisat-genotype/devel/settings.json",
+        mounts=[(f"{folder}/settings.json", "/opt/hisat-genotype/devel/settings.json")],
     )
     return output_name
 
@@ -663,11 +549,11 @@ def hisatRun(input_name: str, index: str) -> str:
         return output_name
     runDocker(
         "hisat",
-        f"hisatgenotype -z {index} --threads {getThreads()} "
-        f"--base hla --out-dir {output_name} "
-        f"--keep-alignment -v --keep-extract "
-        f"-1 {input_name}.read.1.fq.gz "
-        f"-2 {input_name}.read.2.fq.gz ",
+        f"hisatgenotype --threads {getThreads()} --keep-alignment -v --keep-extract"
+        f"  -z {index} --base hla"
+        f"  --out-dir {output_name}"
+        f"  -1 {input_name}.read.1.fq.gz"
+        f"  -2 {input_name}.read.2.fq.gz",
     )
 
     # The folder has these three file
@@ -769,13 +655,16 @@ def hlascanPreRun(input_name: str, index: str) -> str:
                 else:
                     raise ValueError("reference version cannot determine")
                 f.write(
-                    f"hlascan -g {gene} -t {getThreads()} -d {index}.IMGT "
-                    f"-b {input_name}.bam -v {version} > {output_name.format(gene)}.txt"
+                    f"hlascan -g {gene} -t {getThreads()} -d {index}.IMGT"
+                    f"  -b {input_name}.bam -v {version}"
+                    f"  > {output_name.format(gene)}.txt"
                 )
             else:
                 f.write(
-                    f"hlascan -g {gene} -t {getThreads()} -d {index}.IMGT "
-                    f"-l {input_name}.read.1.fq.gz -r {input_name}.read.2.fq.gz > {output_name.format(gene)}.txt"
+                    f"hlascan -g {gene} -t {getThreads()} -d {index}.IMGT"
+                    f"  -l {input_name}.read.1.fq.gz"
+                    f"  -r {input_name}.read.2.fq.gz"
+                    f"  > {output_name.format(gene)}.txt"
                 )
     return output_name
 
@@ -841,10 +730,12 @@ def vbseqBuild(folder: str, db_hla: str = "origin") -> str:
     # default version
     if db_hla == "origin":
         runShell(
-            f"wget https://nagasakilab.csml.org/hla/Allelelist_v2.txt -O {output_name}.allelelist.txt"
+            "wget https://nagasakilab.csml.org/hla/Allelelist_v2.txt"
+            f" -O {output_name}.allelelist.txt"
         )
         runShell(
-            f"wget https://nagasakilab.csml.org/hla/hla_all_v2.fasta -O {output_name}.all.fa"
+            "wget https://nagasakilab.csml.org/hla/hla_all_v2.fasta"
+            f" -O {output_name}.all.fa"
         )
     else:
         # csv -> special txt
@@ -864,12 +755,14 @@ def vbseqPreprocess(input_name: str) -> str:
         f"""\
         samtools view {input_name}.bam \
             6:29907037-29915661 6:31319649-31326989 6:31234526-31241863 \
-            6:32914391-32922899 6:32900406-32910847 6:32969960-32979389 6:32778540-32786825 \
-            6:33030346-33050555 6:33041703-33059473 6:32603183-32613429 6:32707163-32716664 \
-            6:32625241-32636466 6:32721875-32733330 6:32405619-32414826 6:32544547-32559613 \
-            6:32518778-32554154 6:32483154-32559613 6:30455183-30463982 6:29689117-29699106 \
-            6:29792756-29800899 6:29793613-29978954 6:29855105-29979733 6:29892236-29899009 \
-            6:30225339-30236728 6:31369356-31385092 6:31460658-31480901 6:29766192-29772202 \
+            6:32914391-32922899 6:32900406-32910847 6:32969960-32979389 \
+            6:32778540-32786825 6:33030346-33050555 6:33041703-33059473 \
+            6:32603183-32613429 6:32707163-32716664 6:32625241-32636466 \
+            6:32721875-32733330 6:32405619-32414826 6:32544547-32559613 \
+            6:32518778-32554154 6:32483154-32559613 6:30455183-30463982 \
+            6:29689117-29699106 6:29792756-29800899 6:29793613-29978954 \
+            6:29855105-29979733 6:29892236-29899009 6:30225339-30236728 \
+            6:31369356-31385092 6:31460658-31480901 6:29766192-29772202 \
             6:32810986-32823755 6:32779544-32808599 6:29756731-29767588 \
             -o {output_name}.bam
         """,
@@ -886,18 +779,19 @@ def vbseqRun(input_name: str, index: str) -> str:
         return output_name2
     runDocker(
         "bwa",
-        f"bwa mem -t {getThreads()} -P -L 10000 -a {index}.all.fa "
-        f"{input_name}.read.1.fq.gz {input_name}.read.2.fq.gz -o {output_name}.sam ",
+        f"bwa mem -t {getThreads()} -P -L 10000 -a {index}.all.fa"
+        f"  {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz -o {output_name}.sam",
     )
     runDocker(
         "vbseq",
-        f"java -jar /opt/HLAVBSeq.jar {index}.all.fa "
-        f"{output_name}.sam {output_name1}.txt --alpha_zero 0.01 --is_paired ",
+        f"java -jar /opt/HLAVBSeq.jar {index}.all.fa"
+        f"  {output_name}.sam {output_name1}.txt "
+        "   --alpha_zero 0.01 --is_paired",
     )
     runDocker(
         "vbseq",
-        "perl /opt/parse_result.pl "
-        f"{index}.allelelist.txt {output_name1}.txt > {output_name2}.txt",
+        f"perl /opt/parse_result.pl {index}.allelelist.txt"
+        f"  {output_name1}.txt > {output_name2}.txt",
     )
     return output_name2
 
@@ -945,7 +839,8 @@ def hlalaBuild(folder: str = "hlala", db_hla: str = "origin") -> str:
     if Path(f"{output_name}/serializedGRAPH").exists():
         return output_name
     runShell(
-        f"wget http://www.well.ox.ac.uk/downloads/PRG_MHC_GRCh38_withIMGT.tar.gz -P {folder}"
+        "wget http://www.well.ox.ac.uk/downloads/PRG_MHC_GRCh38_withIMGT.tar.gz"
+        f" -P {folder}"
     )
     runShell(f"tar -vxf {folder}/PRG_MHC_GRCh38_withIMGT.tar.gz -C {folder}")
     runShell(f"mv {folder}/PRG_MHC_GRCh38_withIMGT {output_name}")
@@ -966,9 +861,9 @@ def hlalaRun(input_name: str, index: str) -> str:
     runShell(f"mkdir -p {output_name}")
     runDocker(
         "hlala",
-        f"HLA-LA.pl --workingDir {output_name} --graph . --maxThreads {getThreads()} "
-        f"--BAM {input_name}.bam --sampleID data ",
-        opts=f" -v {Path(index).absolute()}:/usr/local/opt/hla-la/graphs/",
+        f"HLA-LA.pl --graph . --maxThreads {getThreads()}"
+        f"  --workingDir {output_name} --BAM {input_name}.bam --sampleID data",
+        mounts=[(index, "/usr/local/opt/hla-la/graphs/")],
     )
     return output_name
 
@@ -1044,9 +939,7 @@ def xhlaRun(input_name: str, index: str) -> str:
     # see bin/run.py and bin/typer.sh
     id = Path(output_name).name
     runDocker(
-        "xhla",
-        f"typer.sh {input_name}.bam {id} full",
-        opts=f"-v {Path(index).absolute()}:/opt/data ",
+        "xhla", f"typer.sh {input_name}.bam {id} full", mounts=[(index, "/opt/data")]
     )
     runShell(f"mv hla-{id}/{id}* {Path(output_name).parent}")
     runShell(f"rm hla-{id} -r")
@@ -1151,9 +1044,11 @@ def graphtyperRun(input_name: str) -> str:
     data = json.load(open(input_name + ".json"))
     runDocker(
         "graphtyper",
-        f"graphtyper genotype_hla {data['index']}/hs38.fa --verbose --threads={getThreads()} "
-        f"{data['index']}/{data['gene']}.vcf.gz --region={data['chrom']}:{data['start']}-{data['end']} "
-        f"--sam={data['input_name']}.bam --output={data['output_base']}",
+        f"graphtyper genotype_hla --verbose --threads={getThreads()}"
+        f"  {data['index']}/hs38.fa {data['index']}/{data['gene']}.vcf.gz"
+        f"  --region={data['chrom']}:{data['start']}-{data['end']}"
+        f"  --sam={data['input_name']}.bam"
+        f"  --output={data['output_base']}",
     )
     relink(
         f"{data['output_base']}/{data['chrom']}/{data['start']:09d}-{data['end']:09d}.vcf.gz",
@@ -1171,7 +1066,7 @@ def graphtyperReadResult(input_name: str) -> str:
     ...
     ##FILTER=<ID=LowPratio,Description="Ratio of PASSed calls was too low.">
     #CHROM  POS     ID      REF     ALT     QUAL    FILTER  INFO    FORMAT  NA12878
-    chr6    29724785        chr6:29724785:H.all     <HLA-F*01:03:01:01>     <HLA-F*01:01:01:01>,<HLA-F*01:01:02:01> 255     .       AC=1,1;AF=0.5,0.5;AN=2;MQ=0;NHet=0;NHomAlt=1;NHomRef=0;PASS_AC=1,1;PASS_AN=2;PASS_ratio=1;RefLen=19;VarType=H  GT:GQ:PL        1/2:99:255,255,200,150,0,200
+    chr6    29724785        chr6:29724785:H.all     <HLA-F*01:03:01:01>     ...GT:GQ:PL        1/2:99:255,255,200,150,0,200
     ```
     """
     output_name = input_name.replace(".{}", "_merge") + ".hla_result"
@@ -1235,12 +1130,12 @@ def optitypeRun(input_name: str, index: str) -> str:
     runDocker(
         "optitype",
         f"OptiTypePipeline.py  --dna --verbose"
-        f" --input {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz"
-        f" --outdir {parent} --prefix {name}.",
-        opts=(
-            f" -v {Path(index).absolute()}:/usr/local/bin/data "
-            f" -v {Path(index).absolute()}/config.ini:/usr/local/bin/config.ini "
-        ),
+        f"  --input {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz"
+        f"  --outdir {parent} --prefix {name}.",
+        mounts=[
+            (index, "/usr/local/bin/data"),
+            (index + "/config.ini", "/usr/local/bin/config.ini"),
+        ],
     )
     return output_name
 
@@ -1276,10 +1171,10 @@ def arcasBuild(folder: str, db_hla: str) -> str:
     runDocker(
         "arcas",
         "arcasHLA reference --rebuild",
-        opts=(
-            f" -v {Path(db_hla).absolute()}:/usr/local/share/arcas-hla-0.5.0-1/dat/IMGTHLA/:ro "
-            f" -v {Path(output_name).absolute()}:/usr/local/share/arcas-hla-0.5.0-1/dat/ref/ "
-        ),
+        mounts=[
+            (db_hla, "/usr/local/share/arcas-hla-0.5.0-1/dat/IMGTHLA/"),
+            (output_name, "/usr/local/share/arcas-hla-0.5.0-1/dat/ref/"),
+        ],
     )
     return output_name
 
@@ -1292,7 +1187,7 @@ def arcasPreprocess(input_name: str) -> str:
         return output_name
     runDocker(
         "arcas",
-        f"arcasHLA extract -t {getThreads()} -v " f"{input_name}.bam -o {output_name}",
+        f"arcasHLA extract -t {getThreads()} -v {input_name}.bam -o {output_name}",
     )
     name = Path(input_name).name
     relink(f"{output_name}/{name}.extracted.1.fq.gz", f"{output_name}.read.1.fq.gz")
@@ -1307,12 +1202,16 @@ def arcasRun(input_name: str, index: str) -> str:
         return output_name
     runDocker(
         "arcas",
-        f"arcasHLA genotype -o {output_name} -t {getThreads()} -v "
-        f"{input_name}.read.1.fq.gz {input_name}.read.2.fq.gz",
-        opts=(
-            f" -v {Path(index).absolute()}:/usr/local/share/arcas-hla-0.5.0-1/dat/ref:ro "
-            f" -v {Path(index).absolute()}/hla.dat:/usr/local/share/arcas-hla-0.5.0-1/dat/IMGTHLA/hla.dat:ro "
-        ),
+        f"arcasHLA genotype -t {getThreads()} -v"
+        f"  -o {output_name}"
+        f"  {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz",
+        mounts=[
+            (index, "/usr/local/share/arcas-hla-0.5.0-1/dat/ref"),
+            (
+                index + "/hla.dat",
+                "/usr/local/share/arcas-hla-0.5.0-1/dat/IMGTHLA/hla.dat",
+            ),
+        ],
     )
     return output_name
 
@@ -1347,7 +1246,7 @@ def polysolverRun(input_name: str, index: str) -> str:
     runDocker(
         "polysolver",
         f"bash /home/polysolver/scripts/shell_call_hla_type"
-        f" {input_name}.bam Unknown 0 hg19 STDFQ 0 {output_name}",
+        f"  {input_name}.bam Unknown 0 hg19 STDFQ 0 {output_name}",
     )
     return output_name
 
@@ -1384,7 +1283,7 @@ def soaphlaBuild(folder: str, db_hla: str = "origin") -> str:
     output_name = f"{folder}/hla_3090"
     if Path(output_name).exists():
         return output_name
-    runShell(f"git clone https://github.com/adefelicibus/soap-hla.git {folder}/soaphla")
+    runShell("git clone https://github.com/adefelicibus/soap-hla.git {folder}/soaphla")
     runShell(f"cd {folder}/soaphla && git checkout 407812d")
     runShell(f"cp -r {folder}/soaphla/data {output_name}")
     return output_name
@@ -1399,7 +1298,7 @@ def soaphlaRun(input_name: str, index: str) -> str:
     runDocker(
         "soaphla",
         f"MHC_autopipeline -i {input_name}.bam -od {output_name} -v hg19",
-        opts=f" -v {Path(index).absolute()}:/opt/conda/share/database:ro ",
+        mounts=[(index, "/opt/conda/share/database")],
     )
     return output_name
 
@@ -1476,14 +1375,16 @@ def hlaminerRun(input_name: str, index: str) -> str:
     index_ref = f"{index}/HLA-I_II_GEN.fasta"
     runDocker(
         "bwa",
-        f"bwa mem -t {getThreads()} {index_ref} "
-        f"{input_name}.read.1.fq.gz {input_name}.read.2.fq.gz -o {output_name}.sam ",
+        f"bwa mem -t {getThreads()} {index_ref}"
+        f"  {input_name}.read.1.fq.gz"
+        f"  {input_name}.read.2.fq.gz"
+        f"  -o {output_name}.sam",
     )
     # file path hacking
     runDocker(
         "hlaminer",
-        f"HLAminer.pl -h {index_ref} -p {index}/hla_nom_p.txt -i 90 -q 10 -s 100 "
-        f" -a {output_name}.sam -l /../{output_name} ",
+        f"HLAminer.pl -h {index_ref} -p {index}/hla_nom_p.txt -i 90 -q 10 -s 100"
+        f"  -a {output_name}.sam -l /../{output_name}",
     )
     return output_name
 
@@ -1538,7 +1439,7 @@ def seq2hlaRun(input_name: str, index: str) -> str:
         "seq2hla",
         f"seq2HLA -r {output_name}. -p {getThreads()}"
         f" -1 {input_name}.read.1.fq.gz -2 {input_name}.read.2.fq.gz",
-        opts=f" -v {Path(index).absolute()}:/usr/local/share/seq2hla-2.2-2/references ",
+        mounts=[(index, "/usr/local/share/seq2hla-2.2-2/references")],
     )
     return output_name
 
@@ -1578,7 +1479,8 @@ def hlahdDownload(folder: str = "hlahd", version: str = "1.5.0") -> str:
     """https://www.genome.med.kyoto-u.ac.jp/HLA-HD/download-request/"""
     if not Path(f"{folder}/hlahd.{version}.tar.gz").exists():
         raise ValueError(
-            f"Require manually download requests and place the file here: {folder}/hlahd.{version}.tar.gz"
+            "Require manually download requests and place the file here: "
+            f" {folder}/hlahd.{version}.tar.gz"
         )
     if Path(f"{folder}/hlahd").exists():
         return folder
@@ -1586,7 +1488,8 @@ def hlahdDownload(folder: str = "hlahd", version: str = "1.5.0") -> str:
     runShell(f"mv {folder}/hlahd.{version} {folder}/hlahd")
     # install.sh include index building So i separate it
     runShell(
-        f"grep -h g++ {folder}/hlahd/install.sh {folder}/hlahd/update.dictionary.sh > {folder}/hlahd/compile.sh"
+        f"grep -h g++ {folder}/hlahd/install.sh {folder}/hlahd/update.dictionary.sh"
+        f"     > {folder}/hlahd/compile.sh"
     )
     return folder
 
@@ -1599,7 +1502,8 @@ def hlahdBuild(folder: str, db_hla: str = "origin") -> str:
             return output_name
         runShell(f"cp -r {folder}/hlahd/dictionary {output_name}")
         runShell(
-            f"cp -r {folder}/hlahd/HLA_gene.split.3.32.0.txt {output_name}/HLA_gene.split.txt"
+            f"cp -r {folder}/hlahd/HLA_gene.split.3.32.0.txt"
+            f"      {output_name}/HLA_gene.split.txt"
         )
         runDocker("hlahd", "bash bw_build.sh", chdir=output_name)
     else:
@@ -1617,7 +1521,8 @@ def hlahdBuild(folder: str, db_hla: str = "origin") -> str:
         runDocker("hlahd", f"bash move_file.sh", chdir=output_name)
         runDocker("hlahd", f"bash bw_build.sh", chdir=output_name)
         runShell(
-            f"cp -r {folder}/hlahd/HLA_gene.split.3.32.0.txt {output_name}/HLA_gene.split.txt"
+            f"cp -r {folder}/hlahd/HLA_gene.split.3.32.0.txt"
+            f"      {output_name}/HLA_gene.split.txt"
         )
     return output_name
 
@@ -1630,8 +1535,9 @@ def hlahdRun(input_name: str, index: str) -> str:
     runShell(f"mkdir -p {output_name}/data")
     runDocker(
         "hlahd",
-        f"hlahd.sh -t {getThreads()} {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz "
-        f"{index}/HLA_gene.split.txt {index}/ data {output_name}",
+        f"hlahd.sh -t {getThreads()}"
+        f"  {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz"
+        f"  {index}/HLA_gene.split.txt {index}/ data {output_name}",
     )
     return output_name
 
@@ -1684,8 +1590,10 @@ def phlatRun(input_name: str, index: str, index_bam: str) -> str:
     runShell(f"mkdir -p {output_name}/data")
     runDocker(
         "phlat",
-        f"bash /usr/bin/run.b38.sh --data-dir {output_name} --rs-dir {output_name} "
-        f" --ref-fasta {index_bam} --bam {input_name}.bam --tag data --index-dir {index} ",
+        "bash /usr/bin/run.b38.sh --tag data"
+        f" --ref-fasta {index_bam} --index-dir {index}"
+        f" --bam {input_name}.bam"
+        f" --rs-dir {output_name} --data-dir {output_name}",
     )
     return output_name
 
@@ -1724,7 +1632,8 @@ def hlaforestBuild(folder: str, db_hla: str = "origin") -> str:
 
     if not Path(f"{folder}/hlaforest").exists():
         runShell(
-            f"git clone https://github.com/FNaveed786/hlaforest.git {folder}/hlaforest"
+            "git clone https://github.com/FNaveed786/hlaforest.git"
+            f" {folder}/hlaforest"
         )
         runShell(f"cd {folder}/hlaforest && git checkout 75edb46")
 
@@ -1749,7 +1658,7 @@ def hlaforestBuild(folder: str, db_hla: str = "origin") -> str:
                     f_out.write(line)
         runDocker(
             "hlaforest",
-            f"bowtie-build {output_name}/hla_nuc_nospace_filtered.fasta "
+            f"bowtie-build {output_name}/hla_nuc_nospace_filtered.fasta"
             f"             {output_name}/hla_nuc_nospace_filtered",
         )
     with (
@@ -1777,11 +1686,10 @@ def hlaforestRun(input_name: str, index: str) -> str:
         return output_name
     runDocker(
         "hlaforest",
-        f"CallHaplotypesPE.sh {output_name} {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz",
-        opts=(
-            f" -v {Path(index).absolute()}/config.sh:/root/hla/hlaforest/scripts/config.sh:ro "
-            f" -e NUM_THREADS={getThreads()} "
-        ),
+        f"CallHaplotypesPE.sh {output_name}"
+        f"  {input_name}.read.1.fq.gz {input_name}.read.2.fq.gz",
+        mounts=[(f"{index}/config.sh", "/root/hla/hlaforest/scripts/config.sh")],
+        envs=[("NUM_THREADS", str(getThreads()))],
     )
     return output_name
 
@@ -1844,11 +1752,11 @@ def hlaprofilerRun(input_name: str, index: str) -> str:
     runDocker(
         "hlaprofiler",
         f"HLAProfiler.pl predict -kp /usr/local/share/kraken-ea-0.10.5ea.3-3/ -intermediate_files"
-        f" -intermediate_files -threads {getThreads()}"
-        f" -database_name . -database_dir {index} -r {index}/data/reference/hla.ref.merged.fa"
-        f" -output_dir {output_name} -l {output_name}.log"
-        f" -fastq1 {input_name}.read.1.fq.gz "
-        f" -fastq2 {input_name}.read.2.fq.gz ",
+        f"  -intermediate_files -threads {getThreads()}"
+        f"  -database_name . -database_dir {index} -r {index}/data/reference/hla.ref.merged.fa"
+        f"  -output_dir {output_name} -l {output_name}.log"
+        f"  -fastq1 {input_name}.read.1.fq.gz"
+        f"  -fastq2 {input_name}.read.2.fq.gz",
     )
     return output_name
 
@@ -1915,26 +1823,22 @@ def athlatesBuild(folder: str, db_hla: str = "origin") -> str:
         runShell(f"cp -r {folder}/athlates/db {output_name}")
         runShell(f"ln -s DRB_nuc.txt {output_name}/msa/DRB1_nuc.txt")
         runShell(f"ln -s DQB_nuc.txt {output_name}/msa/DQB1_nuc.txt")
-        runDocker(
-            "athlates",
-            f"novoindex {output_name}/ref/hla.clean.nix {output_name}/ref/hla.clean.fasta",
-        )
     else:
         runShell(f"mkdir -p {output_name}")
         runShell(f"cp -r {db_hla}/alignments {output_name}/msa")
         runShell(f"cp {db_hla}/hla_gen.fasta {output_name}/")
         runDocker(
             "athlates",
-            f"perl /usr/local/bin/hla_ref_clean.pl "
-            f"-ref {output_name}/hla_gen.fasta  -oprefix {output_name}/hla",
+            f"perl /usr/local/bin/hla_ref_clean.pl"
+            f"  -ref {output_name}/hla_gen.fasta  -oprefix {output_name}/hla",
         )
         runShell(f"mkdir -p {output_name}/bed {output_name}/ref")
         runShell(f"mv {output_name}/*.bed {output_name}/bed")
         runShell(f"mv {output_name}/*.fasta {output_name}/ref")
-        runDocker(
-            "athlates",
-            f"novoindex {output_name}/ref/hla.clean.nix {output_name}/ref/hla.clean.fasta",
-        )
+    runDocker(
+        "novoalign",
+        f"novoindex {output_name}/ref/hla.clean.nix {output_name}/ref/hla.clean.fasta",
+    )
     return output_name
 
 
@@ -1945,8 +1849,8 @@ def athlatesPreRun(input_name: str, index: str) -> str:
     if Path(output_call.format("DQB1") + ".json").exists():
         return output_call
     runDocker(
-        "athlates",
-        "sh -c 'novoalign -o SAM -r Random -i PE 100-1400 -H -t 30 -n 100 "
+        "novoalign",
+        "sh -c 'novoalign -o SAM -r Random -i PE 100-1400 -H -t 30 -n 100"
         f"  -d {index}/ref/hla.clean.nix"
         f"  -f {input_name}.read.1.fq {input_name}.read.2.fq"
         f"  >  {output_name}.sam'",
@@ -1987,24 +1891,31 @@ def athlatesRun(input_name: str) -> str:
     output_name2 = data["output_call"].format(gene) + ".nontarget"
     runDocker(
         "samtools",
-        f"samtools view -h -F 4 -L {index}/bed/hla.{gene}.bed {data['output_name']}.bam -o {output_name1}.bam",
+        f"samtools view -@{getThreads()} -h -F 4"
+        f"  -L {index}/bed/hla.{gene}.bed"
+        f"  {data['output_name']}.bam -o {output_name1}.bam",
     )
     runDocker(
         "samtools",
-        f"samtools sort -n {output_name1}.bam -o {output_name1}.sortname.bam",
+        f"samtools sort -@{getThreads()} -n"
+        f"  {output_name1}.bam -o {output_name1}.sortname.bam",
     )
     runDocker(
         "samtools",
-        f"samtools view -h -F 4 -L {index}/bed/hla.non-{gene}.bed {data['output_name']}.bam -o {output_name2}.bam",
+        f"samtools view -@{getThreads()} -h -F 4"
+        f"  -L {index}/bed/hla.non-{gene}.bed"
+        f"  {data['output_name']}.bam -o {output_name2}.bam",
     )
     runDocker(
         "samtools",
-        f"samtools sort -n {output_name2}.bam -o {output_name2}.sortname.bam",
+        f"samtools sort -@{getThreads()} -n "
+        f"  {output_name2}.bam -o {output_name2}.sortname.bam",
     )
     try:
         runDocker(
             "athlates",
-            f"typing -bam {output_name1}.sortname.bam -exlbam {output_name2}.sortname.bam "
+            f"typing -bam {output_name1}.sortname.bam "
+            f"       -exlbam {output_name2}.sortname.bam "
             f"       -msa {index}/msa/{gene}_nuc.txt -hd 2 "
             f"       -o {output_name}",
         )
@@ -2115,12 +2026,12 @@ def hlassignBuild(folder: str, db_hla: str = "origin") -> str:
     for gene in ["A", "B", "C", "DRB1", "DPA1", "DPB1", "DQA1", "DQB1"]:
         runDocker(
             "hlassign",
-            f"gethlamultialignexonwise {output_name}/{gene}_gen.txt "
+            f"gethlamultialignexonwise {output_name}/{gene}_gen.txt"
             f"  > {output_name}/{gene}_gen.hlp.txt",
         )
         runDocker(
             "hlassign",
-            f"gethlamultialignexonwise {output_name}/{gene}_nuc.txt "
+            f"gethlamultialignexonwise {output_name}/{gene}_nuc.txt"
             f"  > {output_name}/{gene}_nuc.hlp.txt",
         )
     return output_name
@@ -2170,10 +2081,11 @@ def hlassignRun(input_name: str) -> str:
     index = data["index"]
     runDocker(
         "hlassign",
-        f"prefilterhlareads --Ref {index}/{gene}_gen.hlp.txt "
-        f"  --read_length {data['read_length']} --min_alignment 30 "
-        f"  --fastq {data['input_name']}.fq "
-        f"  --on-target {output_name}.target.fq --off-target {output_name}.offtarget.fq",
+        f"prefilterhlareads --Ref {index}/{gene}_gen.hlp.txt"
+        f"  --read_length {data['read_length']} --min_alignment 30"
+        f"  --fastq {data['input_name']}.fq"
+        f"  --on-target {output_name}.target.fq"
+        f"  --off-target {output_name}.offtarget.fq",
     )
     output_name = output_name + ".target"
 
@@ -2186,12 +2098,12 @@ def hlassignRun(input_name: str) -> str:
     runDocker(
         "hlassign",
         f"nextcallhla --cDNA {index}/{gene}_nuc.txt --gDNA {index}/{gene}_gen.txt"
-        f"  --bias-alleles {index}/incomplete_alleles.txt "
-        f"  --amb-table {index}/ambiguity_table.txt "
+        f"  --bias-alleles {index}/incomplete_alleles.txt"
+        f"  --amb-table {index}/ambiguity_table.txt"
         f"  --read-length {data['read_length']}"
-        f"  --reads {output_name}.fa "
-        f"  --out {output_name}.result.txt "
-        f"  --scratch {output_name} --outPic {output_name} ",
+        f"  --reads {output_name}.fa"
+        f"  --out {output_name}.result.txt"
+        f"  --scratch {output_name} --outPic {output_name}",
     )
     return output_name
 
@@ -2230,12 +2142,10 @@ def hlassignReadResult(input_name: str) -> str:
 
 def stcseqBuild(folder: str, db_hla: str = "origin") -> str:
     """https://ngdc.cncb.ac.cn/biocode/tools/BT007068/releases/v1.0"""
-    if db_hla == "origin":
-        output_name = f"{folder}/hla_3260"  # written in paper
+    output_name = f"{folder}/hla_3260"  # written in paper
 
     if Path(output_name + "/exon-70bp.fastq").exists():
         return output_name
-
     runShell(
         f"wget https://ngdc.cncb.ac.cn/biocode/tools/7068/releases/v1.0/file/download?filename=STC-Seq.tar.gz -O {folder}/STC-Seq.tar.gz"
     )
@@ -2243,7 +2153,8 @@ def stcseqBuild(folder: str, db_hla: str = "origin") -> str:
     runShell(f"mv {folder}/STC-Seq/data {output_name}")
     runDocker(
         "stcseq",
-        f"getArtifical_reads {output_name}/hla.exon.fasta {output_name}/exon-70bp.fastq",
+        f"getArtifical_reads {output_name}/hla.exon.fasta"
+        f"  {output_name}/exon-70bp.fastq",
     )
     return output_name
 
@@ -2260,8 +2171,9 @@ def stcseqRun(input_name: str, index: str) -> str:
     runDocker("stcseq", f"step_2.sh {output_name} {index}")
     runDocker(
         "stcseq",
-        f"Rscript /usr/local/bin/Initial_screening.R "
-        f"{output_name}_position-array.txt 7 15 {output_name}_second_retain_allele.txt",
+        f"Rscript /usr/local/bin/Initial_screening.R"
+        f"  {output_name}_position-array.txt 7 15"
+        f"  {output_name}_second_retain_allele.txt",
     )
     runDocker("stcseq", f"step_3.sh {output_name} {index}")
     return output_name
@@ -2383,13 +2295,13 @@ def readArgument() -> argparse.Namespace:
     parser.add_argument(
         "--tools",
         default=[
-            # "arcashla",  # for RNA, easy to fail
-            # "athlates",  # for RNA, easy to fail
+            # "arcashla",   # for RNA, easy to fail for DNA
+            # "athlates",   # for RNA, easy to fail for DNA, require download request
             "bwakit",
             "graphtyper",
             "hisat",
-            # 'hlaforest',  # for RNA, easy to fail
-            # 'hlahd',  # require download requests, disable as default
+            # "hlaforest",  # for RNA, easy to fail for DNA
+            # "hlahd",      # require download requests, disable as default
             "hlala",
             "hlaminer",
             "hlaprofiler",
@@ -2397,7 +2309,7 @@ def readArgument() -> argparse.Namespace:
             "hlassign",
             "kourami",
             "optitype",
-            # "phlat",  # require download requests
+            # "phlat",      # require download requests
             "polysolver",
             "seq2hla",
             "soaphla",
