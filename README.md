@@ -23,33 +23,35 @@ Tools includes
 * seq2HLA=2.2--2 (RNA, https://github.com/TRON-Bioinformatics/seq2HLA)
 * SOAP-HLA=1.0.0 (https://github.com/adefelicibus/soap-hla)
 * STC-Seq=1.0 (https://ngdc.cncb.ac.cn/biocode/tools/BT007068)
+* T1K=1.0.1 (https://github.com/mourisl/T1K.git)
 * HLA-VBSeq=11/22/2018 (https://nagasakilab.csml.org/hla/)
 * xHLA=34221ea (https://github.com/humanlongevity/HLA)
 
 Some tools are able to update the index to the latest IMGT-HLA version
 (https://www.ebi.ac.uk/ipd/imgt/hla/)
 
-* arcasHLA (Default 3.24.0 -> Current 3.49.0)
-* ATHLATES (Provided 3.9.0 -> Current 3.49.0※)
-* bwakit (Cannot change)
-* graphtyper (Provided 3.23.0, cannot change)
+* arcasHLA       (Default  3.24.0 -> Current 3.49.0)
+* ATHLATES       (Provided 3.9.0  -> Current 3.49.0※)
+* bwakit         (Unknwon,           cannot change)
+* graphtyper     (Provided 3.23.0,   cannot change)
 * HISAT-genotype (Provided 3.26.0 -> Max 3.43.0)
-* HLAforest=75edb46 (Provided 3.10.0 -> Current 3.49.0)
-* HLA-HD (Default 3.32.0 -> Current 3.49.0)
-* HLA-LA (Unknwon, cannot change)
-* HLAminer (Provided 3.33.0 -> Current 3.49.0)
-* HLAProfiler (Provided 3.24.0, maybe can change but require more time to try)
-* HLAscan (Unknwon, cannot change, not open-source)
-* HLAssign (Provided 3.12.0 -> Current 3.49.0)
-* Kourami (Provided 3.24.0 -> Current 3.49.0)
-* OptiType (Provided 3.14.0, cannot change)
-* PHLAT (Provided 3.9.0, cannot change)
-* POLYSOLVER (Provided 3.10.0, cannot change)
-* seq2HLA (Unknwon, cannot change)
-* SOAP-HLA (Provided 3.9.0, cannot change)
-* STC-Seq (Provided 3.26.0, cannot change)
-* HLA-VBSeq (Provided 3.31.0 -> Current 3.49.0)
-* xHLA=34221ea (Unknwon -> Current 3.49.0)
+* HLAforest      (Provided 3.10.0 -> Current 3.49.0)
+* HLA-HD         (Default  3.32.0 -> Current 3.49.0)
+* HLA-LA         (Unknwon,           cannot change)
+* HLAminer       (Provided 3.33.0 -> Current 3.49.0)
+* HLAProfiler    (Provided 3.24.0,   maybe can change but require more time to try)
+* HLAscan        (Unknwon,           cannot change, not open-source)
+* HLAssign       (Provided 3.12.0 -> Current 3.49.0)
+* Kourami        (Provided 3.24.0 -> Current 3.49.0)
+* OptiType       (Provided 3.14.0,   cannot change)
+* PHLAT          (Provided 3.9.0,    cannot change)
+* POLYSOLVER     (Provided 3.10.0,   cannot change)
+* seq2HLA        (Unknwon,           cannot change)
+* SOAP-HLA       (Provided 3.9.0,    cannot change)
+* STC-Seq        (Provided 3.26.0,   cannot change)
+* T1K            (Default  3.44.0 -> Current 3.49.0)
+* HLA-VBSeq      (Provided 3.31.0 -> Current 3.49.0)
+* xHLA=34221ea   (Unknwon -> Current 3.49.0)
 
 ※ Temporary fixed by linnil1, require more tuning
 
@@ -235,8 +237,7 @@ you may test your data which has size as real data first.
 
 Some HLA tools are not considered as TODO:
 * HLA-PRG (The precessor of HLA-LA)
-* SNP2HLA (SNP array data as input)
-* HIBAG (SNP array)
+* SNP2HLA, HIBAG, cookHLA, ... (SNP array data as input)
 * HLAreporter (Hard to run it, I don't have enough enthusiasm to fix them. https://github.com/jiaolongsun/hlareporter)
 * HLAssign2 (Just visualization update)
 
@@ -269,8 +270,8 @@ These tools require manully fills the download requests:
 * **seq2HLA** Boegel, S., Löwer, M., Schäfer, M. et al. HLA typing from RNA-Seq sequence reads. Genome Med 4, 102 (2013). https://doi.org/10.1186/gm403
 * **SOAP-HLA** Cao H, Wu J, Wang Y, Jiang H, Zhang T, et al. (2013) An Integrated Tool to Study MHC Region: Accurate SNV Detection and HLA Genes Typing in Human MHC Region Using Targeted High-Throughput Sequencing. PLOS ONE 8(7): e69388. https://doi.org/10.1371/journal.pone.0069388`
 * **STC-Seq** Jiao, Y., Li, R., Wu, C. et al. High-sensitivity HLA typing by Saturated Tiling Capture Sequencing (STC-Seq). BMC Genomics 19, 50 (2018). https://doi.org/10.1186/s12864-018-4431-5
+* **T1K** Song, L., et al. T1K: efficient and accurate KIR and HLA genotyping with next-generation sequencing data
 * **xHLA** Xie, Chao, et al. "Fast and accurate HLA typing from short-read next-generation sequence data with xHLA." Proceedings of the National Academy of Sciences 114.30 (2017): 8059-8064.
-
 * **IMGT** James Robinson, Dominic J Barker, Xenia Georgiou, Michael A Cooper, Paul Flicek, Steven G E Marsh, IPD-IMGT/HLA Database, Nucleic Acids Research, Volume 48, Issue D1, 08 January 2020, Pages D948–D955, https://doi.org/10.1093/nar/gkz950
 
 

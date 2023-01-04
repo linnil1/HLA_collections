@@ -276,6 +276,12 @@ def downloadHLA(folder: str = "", version: str = "3.49.0") -> str:
     runShell(f"unzip v{version}-alpha.zip")
     runShell(f"rm v{version}-alpha.zip")
     runShell(f"mv IMGTHLA-{version}-alpha {folder}")
+
+    # The downloaded hla.dat is still in git-lfs format
+    if version.startswith("3.44"):
+        runShell(
+            f"wget https://github.com/ANHIG/IMGTHLA/raw/{version}/hla.dat -O {folder}/hla.dat"
+        )
     return folder
 
 
@@ -2247,6 +2253,77 @@ def stcseqReadResult(input_name: str) -> str:
     return output_name
 
 
+def t1kBuild(folder: str, db_hla: str = "origin") -> str:
+    """https://github.com/mourisl/T1K"""
+    output_name = f"{folder}/{Path(db_hla).name}"
+    if Path(output_name).exists():
+        return output_name
+
+    runShell(f"mkdir -p {output_name}")
+    runShell(f"cp -r {db_hla}/hla.dat {output_name}/hla.dat")
+    runDocker("t1k", f"t1k-build.pl -o {output_name} -d {output_name}/hla.dat ")
+    return output_name
+
+
+def t1kRun(input_name: str, index: str) -> str:
+    """Run T1K HLA WGS"""
+    output_name = input_name + ".t1k_" + name2Single(index)
+    if Path(output_name + "._genotype.tsv").exists():
+        return output_name
+    runDocker(
+        "t1k",
+        f""" \
+        run-t1k \
+          -1 {input_name}.read.1.fq.gz \
+          -2 {input_name}.read.2.fq.gz \
+          --preset hla-wgs \
+          -f {index}/t1k_dna_seq.fa \
+          --alleleDigitUnits 8 \
+          -t {getThreads()} \
+          -o {output_name}. \
+        """,
+    )
+    return output_name
+
+
+def t1kReadResult(input_name: str) -> str:
+    """
+    Read t1k into our hla_result format
+
+    Its format:
+    ```
+    HLA-B	2	HLA-B*82:02:01	93.434343	60	HLA-B*07:02:01	72.541604	51
+    ```
+    """
+    output_name = input_name + ".hla_result"
+    if Path(f"{output_name}.tsv").exists():
+        return output_name
+
+    column = [
+        "gene_name",
+        "num_alleles",
+        "allele_1",
+        "abundance_1",
+        "quality_1",
+        "allele_2",
+        "abundance_2",
+        "quality_2",
+    ]
+    df = pd.read_csv(input_name + "._genotype.tsv", sep="\t", names=column)
+    df1 = df[["allele_1", "abundance_1", "quality_1"]]
+    df1 = df1.set_axis(["allele", "abundance", "quality"], axis=1)
+    df2 = df[["allele_2", "abundance_2", "quality_2"]]
+    df2 = df2.set_axis(["allele", "abundance", "quality"], axis=1)
+    df = pd.concat([df1, df2])
+    # remove low quality
+    df = df[df["quality"] > 5]
+    df["allele"] = df["allele"].str.replace("HLA-", "")
+    df = allelesToTable(df["allele"], default_gene=["A", "B", "C"])
+    df["name"] = input_name
+    df.to_csv(output_name + ".tsv", index=False, sep="\t")
+    return output_name
+
+
 # Python Result function/pipeline
 def allelesToTable(
     alleles: Iterable[str], default_gene: list[str] = []
@@ -2358,6 +2435,7 @@ def readArgument() -> argparse.Namespace:
             "seq2hla",
             "soaphla",
             "stcseq",
+            "t1k",
             "vbseq",
             "xhla",
         ],
@@ -2526,6 +2604,17 @@ if __name__ == "__main__":
         samples = hlassignPreRun(samples, index)
         samples = globAndRun(hlassignRun, samples)
         samples = hlassignReadResult(samples)
+
+    if "t1k" in args.tools:
+        db_hla_for_t1k = db_hla
+        if version == "origin":
+            db_hla_for_t1k = downloadHLA("", version="3.44.0")  # peper's version
+        folder = createFolder("", "t1k")
+        folder = checkAndBuildImage(folder)
+        index = t1kBuild(folder, db_hla_for_t1k)
+        samples = t1kRun(samples_fq, index)
+        samples = t1kReadResult(samples)
+        samples = renameResult(samples, samples_fq)
 
     # Below tools mapped all the reads on HLA sequences
     # without any filtering (e.g. remove unrelated read)

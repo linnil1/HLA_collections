@@ -49,6 +49,7 @@ images = {
     "seq2hla": "localhost/linnil1/seq2hla:2.2--2",
     "soaphla": "localhost/linnil1/soaphla:1.0.0-pl526_3",
     "stcseq": "localhost/linnil1/stcseq:v1.0",
+    "t1k": "localhost/linnil1/t1k:v1.0.1",
     "vbseq": "localhost/linnil1/vbseq:20181122",
     "xhla": "localhost/linnil1/xhla",
     "phlat_download": "docker.io/mgibio/phlat:1.1_withindex",
@@ -74,6 +75,7 @@ folders = {
     "seq2hla": "seq2hla",
     "soaphla": "soaphla",
     "stcseq": "stcseq",
+    "t1k": "t1k",
     "vbseq": "vbseq",
     "xhla": "xhla",
 }
